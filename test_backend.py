@@ -79,6 +79,22 @@ class Tests(unittest.TestCase):
         cm={65:'a'};v={'65':True}
         p,i=backend.repair_plan(cm,v,{'65':{'kind':'mismatch','actual':'B'}},[66])
         self.assertEqual(p,{66:65});self.assertEqual(len(i),1)
+    def test_partial_sample_report_and_suggestions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);p=root/'sample.ttf';fixture(p)
+            m=backend.inspect(p,root/'fonts')['fonts'][0]
+            s={'fonts':[m],'scope':'test','reviewMode':'sample','requestedSampleSize':2,'scriptVariant':'traditional',
+               'population':[65,66,67,68,69],'sampled':[65,66],'domain':[65,66,67],
+               'answers':{m['id']:{'65':{'kind':'mismatch','actual':'B'},'66':{'kind':'mismatch','actual':'A'}}}}
+            sp=root/'s.json';sp.write_text(json.dumps(s))
+            r=backend.export(sp,root/'out',False)['fonts'][0]
+            self.assertEqual(len(r['suggestions']),2);self.assertEqual(len(r['unsampled']),2)
+            self.assertEqual(r['extraReviewCount'],1);self.assertEqual(r['sampledCount'],2)
+            self.assertTrue(r['isPartial']);self.assertEqual(len(r['pending']),1)
+            self.assertTrue((root/'out'/(m['id'][:6]+'-修正建議.csv')).exists())
+            self.assertFalse(any((root/'out').glob('*-repaired.*')))
+            repaired=backend.export(sp,root/'repaired',True)['fonts'][0]
+            self.assertEqual(len(repaired['repaired']),2);self.assertTrue(repaired['isPartial'])
     @unittest.skipUnless(os.environ.get('GLYPHCHECK_ORIGINAL_TEST_DIR'), 'Optional local authorized font fixtures are not distributed')
     def test_local_originals(self):
         with tempfile.TemporaryDirectory() as tmp:

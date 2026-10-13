@@ -129,7 +129,8 @@ def repair_plan(cm, visible, answers, missing_targets=()):
 
 def export(session_path,out,attempt):
     s=json.loads(Path(session_path).read_text()); out=Path(out); out.mkdir(parents=True,exist_ok=True)
-    domain=s.get('domain',[]); result=[]
+    domain=s.get('domain',[]); population=s.get('population') or domain
+    sampled=s.get('sampled') or []; mode=s.get('reviewMode') or 'full'; result=[]
     for meta in s['fonts']:
         if hashlib.sha256(Path(meta['source']).read_bytes()).hexdigest() != meta['sha256']:
             raise ValueError('保存的原字檔已變動，為避免錯用字形，已停止輸出。請重新匯入。')
@@ -139,9 +140,11 @@ def export(session_path,out,attempt):
         absent=[cp for cp in domain if not meta['visible'].get(str(cp),False)]
         plan,unresolved=repair_plan(cm,meta['visible'],answers,absent)
         repaired=[]; missing=[]; pending=[]; issues=[]
+        suggestions=[dict(character=chr(target),codepoint=f'U+{target:04X}',donor=chr(donor),donorCodepoint=f'U+{donor:04X}',glyph=cm[donor],status='有已確認來源，可重編碼') for target,donor in sorted(plan.items())]
+        unsampled=[dict(character=chr(cp),codepoint=f'U+{cp:04X}',status='未抽樣，不視為正確') for cp in sorted(set(population)-set(domain))] if mode=='sample' else []
         for cp in domain:
             a=answers.get(str(cp)); char=chr(cp)
-            if not meta['visible'].get(str(cp),False) and unicodedata.category(char)[0] not in ('Z','C'):
+            if not meta['visible'].get(str(cp),False) and unicodedata.category(char) not in ('Zs','Zl','Zp','Cc','Cf','Cs'):
                 missing.append(dict(character=char,codepoint=f'U+{cp:04X}',reason='沒有字碼' if cp not in cm else '空白或 .notdef 字形'))
             elif not a or a['kind'] in ('uncertain','skipped'):
                 pending.append(dict(character=char,codepoint=f'U+{cp:04X}',status=a['kind'] if a else 'not_reviewed'))
@@ -179,22 +182,25 @@ def export(session_path,out,attempt):
                 unresolved.append(dict(expected=chr(target),codepoint=f'U+{target:04X}',seen=answers.get(str(target),{}).get('actual',''),donor=chr(donor),reason='已找到來源，但尚未執行修正'))
         info=dict(font=meta['name'],filename=meta['filename'],sha256=meta['sha256'],face=meta['face'],
             scope=s.get('scope',''),scopeCount=len(domain),missing=missing,repaired=repaired,unresolved=unresolved,
-            pending=pending,answers=issues,output=output,notes=notes,
-            limitations=['僅依使用者人工標註修正 cmap；不自動補畫字形。','未檢查 GSUB/GPOS 連字、變體選擇符、垂直字形或複雜排版。','缺字僅針對選定範圍，不代表整個 Unicode。'])
+            pending=pending,answers=issues,output=output,notes=notes,suggestions=suggestions,unsampled=unsampled,
+            reviewMode=mode,populationCount=len(population),requestedSampleSize=s.get('requestedSampleSize'),sampledCount=len(sampled),
+            extraReviewCount=len(set(domain)-set(sampled)) if mode=='sample' else 0,
+            scriptVariant=s.get('scriptVariant') or 'all',isPartial=bool(pending or unsampled),
+            limitations=['僅依使用者人工標註修正 cmap；不自動補畫字形。','未檢查 GSUB/GPOS 連字、變體選擇符、垂直字形或複雜排版。','缺字僅針對本次選定／抽樣及追加字元，不代表整個 Unicode。','繁簡篩選採系統單字轉換，古字與一對多轉換可能需人工判斷；不會改寫原字碼。'])
         for item in missing:
             item['status']='已由確認來源恢復' if attempt and ord(item['character']) in plan else '待補字'
         info['referenceDoubts']=[{'character':chr(cp),'codepoint':f'U+{cp:04X}'} for cp in s.get('referenceDoubts',[])]
         result.append(info)
         prefix=meta['id'][:6]
-        for name,rows in [('缺字',missing),('已修正',repaired),('未修正',unresolved),('待確認',pending),('人工判定',issues),('參考存疑',info['referenceDoubts'])]:
+        for name,rows in [('缺字',missing),('已修正',repaired),('未修正',unresolved),('待確認',pending),('人工判定',issues),('參考存疑',info['referenceDoubts']),('修正建議',suggestions),('未抽樣',unsampled)]:
             with (out/(prefix+'-'+name+'.csv')).open('w',encoding='utf-8-sig',newline='') as fp:
                 fields=list(dict.fromkeys(k for row in rows for k in row)) or ['character','codepoint','status']
                 writer=csv.DictWriter(fp,fieldnames=fields); writer.writeheader(); writer.writerows(rows)
     (out/'檢查報告.json').write_text(json.dumps({'version':1,'fonts':result},ensure_ascii=False,indent=2))
     (out/'檢查進度.glyphcheck').write_text(json.dumps(s,ensure_ascii=False,indent=2))
-    lines=['字形檢查報告','',f'檢查範圍：{s.get("scope","")}（{len(domain)} 字）','原檔未改動。這份報告不是全字庫正確保證。','']
+    lines=['字形檢查報告','',f'檢查範圍：{s.get("scope","")}（本次 {len(domain)} 字）',f'檢查方式：{"隨機抽樣" if mode=="sample" else "完整檢查／可中途匯出"}',f'選定範圍總數：{len(population)}；原始抽樣：{len(sampled)}；額外追查／複查：{len(set(domain)-set(sampled)) if mode=="sample" else 0}','未抽樣與尚未確認的字，不視為正確。','原檔未改動。這份報告不是全字庫正確保證。','']
     for r in result:
-        lines += [r['font'],f'缺字 {len(r["missing"])}／已修正 {len(r["repaired"])}／未修正 {len(r["unresolved"])}／待確認 {len(r["pending"])}',f'輸出字檔：{r["output"] or "無（未找到安全修正來源）"}','']
+        lines += [r['font'],f'缺字 {len(r["missing"])}／已修正 {len(r["repaired"])}／未修正 {len(r["unresolved"])}／待確認 {len(r["pending"])}',f'修正建議 {len(r["suggestions"])}／未抽樣 {len(r["unsampled"])}',f'輸出字檔：{r["output"] or "無（僅匯出報告，或沒有安全修正來源）"}','']
     lines += ['修正只重編碼已人工確認的來源，不猜補字。部分修正可在檢查未完成時輸出，但必須連同待確認清單使用。','多音字拼音為系統單字轉寫，不保證所有讀音。','進度檔引用本機保存的原檔；跨電腦續接請一併複製整個工作階段資料夾。','字體的原有授權仍適用，請先確認有權修改及分享。']
     (out/'報告摘要.txt').write_text('\n'.join(lines))
     return {'output':str(out),'fonts':result}

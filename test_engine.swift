@@ -29,6 +29,24 @@ import AppKit
         reset(); m.typed["A"] = "A"; m.quickAdvance(); precondition(m.session.answers["A"]?["65"]?.kind == "correct")
         let checkpoint = try JSONDecoder().decode(Session.self,from: Data(contentsOf: m.saveURL))
         precondition(checkpoint.current == m.session.current && checkpoint.answers == m.session.answers)
-        print("PASS: repeated confirmation, mismatch priority, undo, invalid input, uncertainty, same-character input, checkpoint")
+        let selected = try Selection.make(fonts: [a,b],scope: "字檔所有字元",custom: "",variant: "all",sampleSize: 2)
+        precondition(selected.population.count == 3 && selected.selected.count == 2 && Set(selected.selected).count == 2)
+        do { _ = try Selection.make(fonts: [a],scope: "字檔所有字元",custom: "",variant: "all",sampleSize: 4); preconditionFailure("Oversized sample must fail") } catch {}
+        do { _ = try Selection.make(fonts: [a],scope: "字檔所有字元",custom: "",variant: "all",sampleSize: 0); preconditionFailure("Zero sample must fail") } catch {}
+        precondition(Selection.allows(0x66f8,variant: "traditional") && !Selection.allows(0x66f8,variant: "simplified"))
+        precondition(!Selection.allows(0x4e66,variant: "traditional") && Selection.allows(0x4e66,variant: "simplified"))
+        precondition(Selection.allows(0x4e00,variant: "traditional") && Selection.allows(0x4e00,variant: "simplified"))
+        m.uiLanguage = "simplified"; precondition(m.t("匯出目前建議") == "汇出目前建议")
+        reset(); m.drafts["A"] = Answer(kind: "mismatch",actual: "B")
+        precondition(m.knownIssues.contains { $0.cp == 65 && $0.kind == "mismatch" })
+        m.visit(66); precondition(m.session.current == 66 && m.session.answers["A"]?["65"]?.actual == "B" && m.session.remaining.contains(65))
+        m.session.fonts[0].visible["67"] = false
+        precondition(m.knownIssues.contains { $0.cp == 67 && $0.kind == "missing" })
+        reset(); m.typed["A"] = "B"; m.mark(a,"correct"); m.quickAdvance()
+        precondition(m.session.answers["A"]?["65"]?.kind == "correct" && m.typed["A"] != "B")
+        let old = #"{"version":1,"id":"legacy","fonts":[],"scope":"old","domain":[65],"remaining":[],"answers":{},"followed":[],"referenceDoubts":[],"started":false}"#
+        let legacy = try JSONDecoder().decode(Session.self,from: Data(old.utf8))
+        precondition(legacy.population == nil && legacy.reviewMode == nil && legacy.uiLanguage == nil)
+        print("PASS: quick confirmation, mismatch priority, undo, input validation, checkpoint, random sampling, script filters, UI conversion, issue navigation, missing issues, legacy session")
     }
 }

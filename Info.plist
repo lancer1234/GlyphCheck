@@ -4,8 +4,8 @@
 <key>CFBundleName</key><string>字形檢查器</string>
 <key>CFBundleDisplayName</key><string>字形檢查器</string>
 <key>CFBundleIdentifier</key><string>tw.makotolab.GlyphCheck</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>1.1.0</string>
 <key>CFBundleExecutable</key><string>GlyphCheck</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
