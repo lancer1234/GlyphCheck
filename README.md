@@ -2,7 +2,14 @@
 
 A minimal native macOS tool for **human review of font glyphs and incorrect character mappings**, built with SwiftUI, AppKit and CoreText by [MAKOTO LAB](https://makotolab.tw/).
 
-[Download](https://github.com/lancer1234/GlyphCheck/releases) · [MAKOTO LAB](https://makotolab.tw/) · [Buy Me a Coffee ☕](https://buymeacoffee.com/MakotoLab)
+[![Download for Mac](assets/button-download.svg)](https://github.com/lancer1234/GlyphCheck/releases/latest)
+[![GitHub](assets/button-github.svg)](https://github.com/lancer1234/GlyphCheck)
+[![MAKOTO LAB](assets/button-studio.svg)](https://makotolab.tw/)
+[![Buy Me a Coffee](assets/button-coffee.svg)](https://buymeacoffee.com/MakotoLab)
+
+**Latest: 1.2.0** — English UI & Latin scopes, preflight, mapping traces, text proofs, repair comparisons and portable team review.
+
+[![Release notes](assets/button-notes.svg)](RELEASE-1.2.0.md)
 
 ## 為什麼做這個工具？
 
@@ -14,7 +21,14 @@ GlyphCheck 讓你逐字看、逐字判定；遇到誤植會接著追查你看到
 
 - 匯入一或兩個 **TTF / OTF / TTC / OTC** 字檔並排檢查；集合字檔可選擇字面。
 - 完整檢查或隨機抽樣，抽樣數量自行輸入；搭配系統參考字形與拼音。
-- 開始前可選繁體／簡體介面，並獨立選擇繁體／簡體／不限制的字元篩選。
+- macOS「設定…」（⌘,）可選繁體／簡體／英文介面，與字元範圍獨立。
+- 英文／基本拉丁、帶重音的拉丁字母、數字與標點範圍；非漢字參考旁顯示 Unicode 字元名稱，而非拼音。
+- 預掃描空白、相同輪廓及字名／字碼不一致；可疑項目優先出題，但不自動判定誤植。
+- 工作台呈現錯誤對應的交換／連鎖、修復來源，以及原版／修正版詞句對照。
+- 詞句檢查使用 CoreText 排版，可自訂文章、字級和中英範例；缺字／系統備援被標為橘框，不會悄悄替換。
+- 多人核對任務可分段匯出、匯入並合併答案；依原檔 SHA-256 與字面配對，不攜帶字檔。答案衝突須重新判定才可用於修復。
+- 「關於 GlyphCheck」包含 MAKOTO LAB 歸屬、版本、網站、GitHub 與贊助連結。
+- 藍色字形放大鏡 App 圖示，與主畫面 MAKOTO LAB 版權標示。
 - 「問題字」清單可點選誤植、缺字、待確認或參考存疑字，直接複查。
 - **直接按 Enter** 確認正確並進入下一題。輸入一個字後按 Enter，回報看到的字並追查該字。
 - 每個字檔各自記錄判定，支援無法辨認、上一題、指定字複查。
@@ -44,6 +58,9 @@ App 已包含 Python 與 fontTools，使用者不需要另外安裝。
 | 字檔所有字元 | 匯入字檔字碼的聯集；排除空白與控制字元 |
 | 漢字基本區 | U+4E00–U+9FFF |
 | 漢字基本＋擴展 A | 基本區 + U+3400–U+4DBF |
+| 英文／基本拉丁 | U+0021–U+007E；不出空白字元 |
+| 拉丁字母與重音 | 基本拉丁 + U+00A1–U+024F + U+1E00–U+1EFF |
+| 數字與標點 | 固定的常見中英文數字與標點集合 |
 | 自訂文字 | 貼上指定文字，自動去除重複字 |
 
 「所有字元」不是整個 Unicode。要尋找特定範圍的缺字，請選相應漢字範圍或貼入自己的字表。
@@ -95,6 +112,22 @@ Enter 會保留已標記的「誤植」或「無法辨認」，不會把它們�
 
 相同目標有不同候選字形時保留為未修正；沒有人工確認來源也不猜改。缺字表列出原始缺字，若已找回字形，狀態會標記「已由確認來源恢復」。
 
+### 6. 工作台（1.2）
+
+- **預掃描：** 匯入時比對輪廓與字名。開始前即可查看，可疑字在完整／抽樣的已選字元中優先出題。相同輪廓可能是合法共用設計，不自動修正。每份字檔顯示前 200 個缺字、500 個可疑項目，完整資料在報告；舊進度沒有掃描資料時不會推測。
+- **對應追查：** 按「更新追查與修復建議」查看交換與連鎖。這會在本機工作階段產生隔離的預覽字檔，不改動或安裝原字檔。
+- **詞句檢查：** 貼入文字，選範例與字級，比對原版與系統參考。橘框表示缺字／未採用備援，橘色省略號表示預覽高度不足，可縮小字級或分段測試。這是人工 proof，不是自動 kerning／ligature 檢測。
+- **修復對照：** 按「產生最新修復預覽」，並排查看原版／修正版。底下列出目標字與 donor 字碼。未確認來源、參考存疑字或核對衝突不作 donor。
+- **多人核對：** 填核對者名稱、起始序號（1 起算）與字數，匯出 `.glyphreview`。序號依這個工作階段的字碼排序，不依隨機出題順序。任務包含選定字碼與該段既有答案，不含字檔。
+
+接收者先匯入有權使用的相同原字檔及字面，再按「匯入核對任務…」。收到的字碼成為檢查範圍；完成後填自己的名稱，從本機任務序號 1 起匯出全部任務字元（或分段）。原發送者在「多人核對」匯入答案。不同核對者的相異明確判定保留為衝突；點選衝突字，重新提交本機判定才解除封鎖。重複匯入同一任務 ID 不重複投票，錯誤 SHA-256／字面與格式會被拒絕。
+
+新增報告：`預掃描.csv`、`範圍缺字.csv`、`對應追查.csv`，JSON 包含多人衝突與映射關係。`範圍缺字` 掃描完整選定 population，`缺字` 仍只描述實際選定／抽樣及追加字元，兩者不混同。
+
+### English quick start
+
+Open **Settings (⌘,)** to choose English. Select Latin, numbers & punctuation, CJK, or custom text. Enter confirms unmarked fonts; type the character you see to trace a mismatch. The Workbench provides preflight flags, mapping chains, text proofs, repair comparisons and portable team tasks. Tasks match original font hashes and faces; conflicting decisions and reference doubts cannot supply repair donors. Reports currently use Chinese filenames and mixed-language diagnostics, with machine-readable JSON/CSV fields. Fonts stay local, originals are preserved, and no installation is performed.
+
 ## 限制
 
 - 這不是「全字庫絕對正確」驗證器。錯誤人工標註仍可能造成錯修。
@@ -129,7 +162,7 @@ PYTHON_RUNTIME=/path/to/python APP_OUTPUT=/path/to/字形檢查器.app zsh build
 python3 -m venv .venv
 .venv/bin/pip install fonttools==4.66.1
 .venv/bin/python test_backend.py
-swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift test_engine.swift \
+swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift Localization.swift test_engine.swift \
   -o test-engine -framework SwiftUI -framework AppKit -framework CoreText
 ./test-engine
 ```
@@ -137,6 +170,8 @@ swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift test_engin
 公開測試使用程式產生的字檔，涵蓋互換、開放鏈、來源衝突、集合字檔、輸出驗證、連續確認、誤植追查、撤回、錯誤輸入與保存。沒有包含使用者字檔。
 
 1.1 新增抽樣數量驗證、不重複抽樣、繁簡篩選與介面轉換、問題字導航、中途建議／未抽樣報告，以及 1.0 進度檔相容性測試。
+
+1.2 新增英文介面與拉丁範圍、預掃描／對應鏈、多人答案合併、重複匯入、錯誤原檔與非法答案拒絕、衝突解除與撤回、參考存疑來源封鎖，以及 CoreText 詞句繪製測試。
 
 ## English overview
 
@@ -148,7 +183,11 @@ Reviews are saved locally. Export missing/repaired/unresolved/pending reports an
 
 [MAKOTO LAB](https://makotolab.tw/) 是我的獨立軟硬體實驗室，把好奇心與實際需求做成工具和產品。
 
-如果 GlyphCheck 幫你找回了對的字，歡迎透過 [Buy Me a Coffee 贊助](https://buymeacoffee.com/MakotoLab) 支持後續開發。也歡迎回報問題或提出改進；提交 issue 時請避免上傳沒有分享授權的完整字檔或含個人資料的進度檔。
+如果 GlyphCheck 幫你找回了對的字，歡迎支持後續開發。也歡迎回報問題或提出改進；提交 issue 時請避免上傳沒有分享授權的完整字檔或含個人資料的進度檔。
+
+[![MAKOTO LAB](assets/button-studio.svg)](https://makotolab.tw/)
+[![Buy Me a Coffee](assets/button-coffee.svg)](https://buymeacoffee.com/MakotoLab)
+[![Feedback / Issues](assets/button-feedback.svg)](https://github.com/lancer1234/GlyphCheck/issues)
 
 ## License
 

@@ -12,6 +12,43 @@ from pathlib import Path
 from fontTools.ttLib import TTFont, TTCollection
 from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
 from fontTools.pens.boundsPen import BoundsPen
+from fontTools.pens.recordingPen import DecomposingRecordingPen
+from fontTools.agl import toUnicode
+
+def prescan(font, cm, visible):
+    """Heuristics only: shared outlines and aliases can be intentional."""
+    shapes=defaultdict(list); issues=[]; glyphset=font.getGlyphSet(); cache={}
+    for cp,g in sorted(cm.items()):
+        if unicodedata.category(chr(cp)) in ('Zs','Zl','Zp','Cc','Cf','Cs'): continue
+        if not visible.get(str(cp),False):
+            issues.append(dict(cp=cp,kind='blank',detail='Blank or .notdef outline')); continue
+        try:
+            if g not in cache:
+                pen=DecomposingRecordingPen(glyphset); glyphset[g].draw(pen)
+                cache[g]=hashlib.sha256(repr(pen.value).encode()).hexdigest()
+            shapes[cache[g]].append(cp)
+        except Exception:
+            issues.append(dict(cp=cp,kind='outline',detail='Outline could not be compared'))
+        named=toUnicode(g)
+        if len(named)==1 and ord(named)!=cp:
+            issues.append(dict(cp=cp,kind='name',detail=f'Glyph name {g} suggests U+{ord(named):04X}'))
+    for group in shapes.values():
+        if len(group)>1:
+            detail=' / '.join(f'U+{cp:04X}' for cp in group[:20])
+            for cp in group: issues.append(dict(cp=cp,kind='duplicate',detail=detail))
+    return issues
+
+def relationships(answers, plan, conflicts=()):
+    edges={int(cp):ord(a['actual']) for cp,a in answers.items() if a.get('kind')=='mismatch' and len(a.get('actual',''))==1}
+    rows=[]
+    for start in sorted(edges):
+        chain=[]; seen=set(); cp=start
+        while cp in edges and cp not in seen:
+            seen.add(cp); chain.append(cp); cp=edges[cp]
+        chain.append(cp)
+        rows.append(dict(expected=chr(start),codepoint=f'U+{start:04X}',chain=' → '.join(chr(c) for c in chain),
+            cycle=cp in seen,status='conflict' if str(start) in conflicts else 'confirmed_donor' if start in plan else 'needs_confirmation'))
+    return rows
 
 def mapping(font, raw, face=0):
     result = dict(font.getBestCmap() or {})
@@ -72,7 +109,8 @@ def set_cmap(font, cm):
     for platform, encoding in [(0,4),(3,10)]:
         t=CmapSubtable.newSubtable(12); t.platformID=platform; t.platEncID=encoding; t.language=0; t.cmap=dict(cm)
         tables.append(t)
-    font['cmap'].tables=tables
+    # Keep variation-selector mappings; cmap repair must not discard them.
+    font['cmap'].tables=tables+[t for t in font['cmap'].tables if t.format==14]
 
 def inspect(path, dest):
     path=Path(path); dest=Path(dest); dest.mkdir(parents=True,exist_ok=True)
@@ -97,7 +135,7 @@ def inspect(path, dest):
         f.flavor=None; f.save(preview)
         fonts.append(dict(id=fid,name=title,filename=path.name,source=str(original),preview=str(preview),face=face,
             sha256=hashlib.sha256(raw).hexdigest(),glyphs={str(cp):f.getGlyphID(g) for cp,g in cm.items()},
-            visible=visible,notes=notes,upem=f['head'].unitsPerEm))
+            visible=visible,notes=notes,upem=f['head'].unitsPerEm,scan=prescan(f,cm,visible)))
     return {'fonts':fonts}
 
 def repair_plan(cm, visible, answers, missing_targets=()):
@@ -137,8 +175,13 @@ def export(session_path,out,attempt):
         f=TTFont(meta['source'],fontNumber=meta['face'],lazy=False)
         cm,notes=mapping(f,Path(meta['source']).read_bytes(),meta['face'])
         answers=s.get('answers',{}).get(meta['id'],{})
+        conflicts=s.get('reviewConflicts',{}).get(meta['id'],{})
+        # Disputed labels must not become donors, even when a local answer exists.
+        doubts={str(cp) for cp in s.get('referenceDoubts',[])}
+        safe_answers={cp:a for cp,a in answers.items() if cp not in conflicts and cp not in doubts}
         absent=[cp for cp in domain if not meta['visible'].get(str(cp),False)]
-        plan,unresolved=repair_plan(cm,meta['visible'],answers,absent)
+        plan,unresolved=repair_plan(cm,meta['visible'],safe_answers,absent)
+        unresolved.extend(dict(expected=chr(int(cp)),codepoint=f'U+{int(cp):04X}',reason='Reviewers disagree; manual reconciliation required',candidates=values) for cp,values in conflicts.items())
         repaired=[]; missing=[]; pending=[]; issues=[]
         suggestions=[dict(character=chr(target),codepoint=f'U+{target:04X}',donor=chr(donor),donorCodepoint=f'U+{donor:04X}',glyph=cm[donor],status='有已確認來源，可重編碼') for target,donor in sorted(plan.items())]
         unsampled=[dict(character=chr(cp),codepoint=f'U+{cp:04X}',status='未抽樣，不視為正確') for cp in sorted(set(population)-set(domain))] if mode=='sample' else []
@@ -146,7 +189,7 @@ def export(session_path,out,attempt):
             a=answers.get(str(cp)); char=chr(cp)
             if not meta['visible'].get(str(cp),False) and unicodedata.category(char) not in ('Zs','Zl','Zp','Cc','Cf','Cs'):
                 missing.append(dict(character=char,codepoint=f'U+{cp:04X}',reason='沒有字碼' if cp not in cm else '空白或 .notdef 字形'))
-            elif not a or a['kind'] in ('uncertain','skipped'):
+            elif str(cp) in conflicts or str(cp) in doubts or not a or a['kind'] in ('uncertain','skipped'):
                 pending.append(dict(character=char,codepoint=f'U+{cp:04X}',status=a['kind'] if a else 'not_reviewed'))
             if a: issues.append(dict(character=char,codepoint=f'U+{cp:04X}',status=a['kind'],observed=a.get('actual','')))
         output=None
@@ -180,7 +223,7 @@ def export(session_path,out,attempt):
         elif not attempt:
             for target,donor in plan.items():
                 unresolved.append(dict(expected=chr(target),codepoint=f'U+{target:04X}',seen=answers.get(str(target),{}).get('actual',''),donor=chr(donor),reason='已找到來源，但尚未執行修正'))
-        info=dict(font=meta['name'],filename=meta['filename'],sha256=meta['sha256'],face=meta['face'],
+        info=dict(id=meta['id'],font=meta['name'],filename=meta['filename'],sha256=meta['sha256'],face=meta['face'],
             scope=s.get('scope',''),scopeCount=len(domain),missing=missing,repaired=repaired,unresolved=unresolved,
             pending=pending,answers=issues,output=output,notes=notes,suggestions=suggestions,unsampled=unsampled,
             reviewMode=mode,populationCount=len(population),requestedSampleSize=s.get('requestedSampleSize'),sampledCount=len(sampled),
@@ -190,9 +233,14 @@ def export(session_path,out,attempt):
         for item in missing:
             item['status']='已由確認來源恢復' if attempt and ord(item['character']) in plan else '待補字'
         info['referenceDoubts']=[{'character':chr(cp),'codepoint':f'U+{cp:04X}'} for cp in s.get('referenceDoubts',[])]
+        info['relationships']=relationships(answers,plan,conflicts)
+        info['reviewConflicts']=conflicts
+        info['reviewVotes']=s.get('reviewVotes',{}).get(meta['id'],{})
+        info['preflight']=meta.get('scan',[])
+        info['populationMissing']=[dict(character=chr(cp),codepoint=f'U+{cp:04X}',reason='Absent or blank in selected population') for cp in population if not meta['visible'].get(str(cp),False) and unicodedata.category(chr(cp)) not in ('Zs','Zl','Zp','Cc','Cf','Cs')]
         result.append(info)
         prefix=meta['id'][:6]
-        for name,rows in [('缺字',missing),('已修正',repaired),('未修正',unresolved),('待確認',pending),('人工判定',issues),('參考存疑',info['referenceDoubts']),('修正建議',suggestions),('未抽樣',unsampled)]:
+        for name,rows in [('缺字',missing),('已修正',repaired),('未修正',unresolved),('待確認',pending),('人工判定',issues),('參考存疑',info['referenceDoubts']),('修正建議',suggestions),('未抽樣',unsampled),('對應追查',info['relationships']),('預掃描',info['preflight']),('範圍缺字',info['populationMissing'])]:
             with (out/(prefix+'-'+name+'.csv')).open('w',encoding='utf-8-sig',newline='') as fp:
                 fields=list(dict.fromkeys(k for row in rows for k in row)) or ['character','codepoint','status']
                 writer=csv.DictWriter(fp,fieldnames=fields); writer.writeheader(); writer.writerows(rows)

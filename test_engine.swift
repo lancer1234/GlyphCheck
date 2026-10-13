@@ -47,6 +47,36 @@ import AppKit
         let old = #"{"version":1,"id":"legacy","fonts":[],"scope":"old","domain":[65],"remaining":[],"answers":{},"followed":[],"referenceDoubts":[],"started":false}"#
         let legacy = try JSONDecoder().decode(Session.self,from: Data(old.utf8))
         precondition(legacy.population == nil && legacy.reviewMode == nil && legacy.uiLanguage == nil)
+        m.uiLanguage = "english"; precondition(m.t("詞句檢查") == "Text proof")
+        precondition(m.t("已匯入 2 個字檔。") == "Imported 2 fonts.")
+        precondition(pinyin(65).contains("LATIN CAPITAL LETTER A"))
+        let latin = try Selection.make(fonts:[a],scope:"英文／基本拉丁",custom:"",variant:"all",sampleSize:nil)
+        precondition(latin.population.count == 94 && latin.population.contains(97))
+        let accents = try Selection.make(fonts:[a],scope:"拉丁字母與重音",custom:"",variant:"all",sampleSize:nil)
+        precondition(accents.population.contains(233))
+        reset(); m.session.fonts[1].sha256 = "fixture-B"
+        let foreign = ReviewPackage(reviewer:"Alex",domain:[65,66],fonts:[TaskFont(sha256:"fixture",face:0,answers:["65":Answer(kind:"mismatch",actual:"B")])],referenceDoubts:[])
+        m.session.answers["A"] = ["65":Answer(kind:"correct")]
+        try m.mergeReview(foreign)
+        precondition(m.session.reviewConflicts?["A"]?["65"]?.count == 2)
+        precondition(m.completed == 0)
+        let imports = m.session.importedTasks!.count; try m.mergeReview(foreign)
+        precondition(m.session.importedTasks!.count == imports)
+        m.session.current = 65; m.loadDrafts(); m.quickAdvance()
+        precondition(m.session.reviewConflicts?["A"]?["65"] == nil)
+        m.undo(); precondition(m.session.reviewConflicts?["A"]?["65"]?.count == 2)
+        var wrong = foreign; wrong.fonts[0].sha256 = "wrong"
+        do { try m.mergeReview(wrong); preconditionFailure("Wrong original must be rejected") } catch {}
+        wrong = foreign; wrong.fonts[0].answers["99"] = Answer(kind:"correct")
+        do { try m.mergeReview(wrong); preconditionFailure("Out-of-task answer must be rejected") } catch {}
+        wrong = foreign; wrong.fonts[0].answers["65"] = Answer(kind:"mismatch",actual:"AB")
+        do { try m.mergeReview(wrong); preconditionFailure("Invalid character must be rejected") } catch {}
+        let view = ProofCanvas(frame:NSRect(x:0,y:0,width:400,height:240))
+        view.font = CTFontCreateWithName("Helvetica" as CFString,36,nil); view.text = "AV To fi fl Il1 O0 漢字 😀"
+        let bitmap = view.bitmapImageRepForCachingDisplay(in:view.bounds)!
+        view.cacheDisplay(in:view.bounds,to:bitmap)
+        precondition(bitmap.pixelsWide > 0)
+        print("PASS: English, Latin scopes, reviewer conflicts, idempotence, reconciliation undo, invalid tasks, CoreText proof rendering")
         print("PASS: quick confirmation, mismatch priority, undo, input validation, checkpoint, random sampling, script filters, UI conversion, issue navigation, missing issues, legacy session")
     }
 }

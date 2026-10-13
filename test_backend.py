@@ -25,6 +25,32 @@ def fixture(path):
     fb.setupOS2();fb.setupPost();fb.setupMaxp();fb.save(path)
 
 class Tests(unittest.TestCase):
+    def test_preflight_and_relationships(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'font.ttf';fixture(p)
+            m=backend.inspect(p,Path(tmp)/'faces')['fonts'][0]
+            flags={(x['cp'],x['kind']) for x in m['scan']}
+            self.assertIn((68,'blank'),flags)
+            self.assertIn((67,'duplicate'),flags)
+            self.assertIn((0x20000,'duplicate'),flags)
+            self.assertNotIn((65,'duplicate'),flags)
+        a={'65':{'kind':'mismatch','actual':'B'},'66':{'kind':'mismatch','actual':'A'}}
+        rows=backend.relationships(a,{65:66,66:65})
+        self.assertTrue(all(row['cycle'] for row in rows));self.assertEqual(rows[0]['chain'],'A → B → A')
+    def test_disputed_donors_and_reference_doubts_block_repair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);p=root/'sample.ttf';fixture(p)
+            m=backend.inspect(p,root/'fonts')['fonts'][0]
+            s={'fonts':[m],'domain':[65,66],'population':[65,66,69],
+               'answers':{m['id']:{'65':{'kind':'mismatch','actual':'B'},'66':{'kind':'mismatch','actual':'A'}}},
+               'reviewConflicts':{m['id']:{'66':[{'reviewer':'other','answer':{'kind':'correct'}}]}}}
+            sp=root/'s.json';sp.write_text(json.dumps(s))
+            r=backend.export(sp,root/'out',True)['fonts'][0]
+            self.assertFalse(r['repaired']);self.assertEqual(len(r['populationMissing']),1)
+            self.assertEqual(r['relationships'][1]['status'],'conflict')
+            s.pop('reviewConflicts');s['referenceDoubts']=[66];sp.write_text(json.dumps(s))
+            r=backend.export(sp,root/'doubts',True)['fonts'][0]
+            self.assertFalse(r['repaired'])
     def test_cycle_and_open_chain(self):
         cm={65:'a',66:'b',67:'c'};visible={str(c):True for c in cm}
         plan,issues=backend.repair_plan(cm,visible,{'65':{'kind':'mismatch','actual':'B'},'66':{'kind':'mismatch','actual':'A'}})

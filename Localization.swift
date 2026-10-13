@@ -1,0 +1,102 @@
+import Foundation
+
+private let englishStrings: [String:String] = [
+    "匯入一或兩個字檔":"Import one or two fonts",
+    "核對任務":"Review task", "匯入核對任務…":"Import review task…",
+    "清單顯示前 200 個缺字與 500 個可疑項目；完整資料在匯出報告。開始後可點選複查。":"Shows the first 200 missing characters and 500 flags. Full data is in reports. Start review to revisit items.",
+    "字形檢查器":"GlyphCheck", "讓字形對回正確的字":"Put glyphs back where they belong",
+    "介面語言":"Interface language", "關於 GlyphCheck":"About GlyphCheck",
+    "介面語言不會改變檢查範圍或字檔編碼。":"Language does not change the review scope or font encoding.",
+    "由 MAKOTO LAB 開發與維護。":"Created and maintained by MAKOTO LAB.",
+    "字檔留在本機；不自動安裝、不覆寫原檔。":"Fonts stay on your Mac. No automatic installation or overwriting originals.",
+    "匯入字檔":"Import fonts", "加入第二個字檔":"Add a second font", "匯入":"Import",
+    "TTF · OTF · TTC · 可拖曳":"TTF · OTF · TTC · Drag and drop", "檢查範圍":"Review scope",
+    "字檔所有字元":"All mapped characters", "漢字基本區":"Basic CJK", "漢字基本＋擴展 A":"Basic CJK + Extension A",
+    "英文／基本拉丁":"English / Basic Latin", "拉丁字母與重音":"Latin letters & accents", "數字與標點":"Numbers & punctuation",
+    "自訂文字":"Custom text", "字元篩選":"Chinese character filter", "全部（繁簡皆含）":"All (Traditional & Simplified)",
+    "繁體":"Traditional", "簡體":"Simplified", "檢查方式":"Review mode", "完整檢查":"Full review",
+    "隨機抽樣":"Random sample", "抽樣字數":"Sample size", "數量":"Count",
+    "貼上想檢查的文字；會去除重複字":"Paste characters to review; duplicates are removed",
+    "繼續上次檢查":"Resume last review", "開始檢查":"Start review", "取消":"Cancel", "好":"OK",
+    "字面":"Face", "選擇字面":"Select a font face",
+    "這是包含多個字面的集合。請選一個；可再匯入一次比較另一字面。":"Choose a face from this collection. Import again to compare another face.",
+    "工作台":"Workbench", "檢查工作台":"Review workbench", "預掃描":"Preflight", "對應追查":"Mapping trace",
+    "詞句檢查":"Text proof", "修復對照":"Repair comparison", "多人核對":"Team review",
+    "問題字":"Issues", "指定字複查":"Review a character", "匯出":"Export",
+    "匯出目前建議":"Export suggestions", "匯出目前建議與報告…":"Export suggestions & reports…",
+    "嘗試修正並匯出…":"Repair & export…", "嘗試修正並匯出報告":"Repair & export reports",
+    "上一題":"Previous", "暫時不確定":"Unsure", "下一題":"Next", "確認，下一題 ↵":"Confirm & next ↵",
+    "直接按 Enter；沒有輸入時確認正確，有輸入時回報看到的字":"Enter confirms unmarked fonts; type a character to report what you see",
+    "這次抽樣已判定完成":"This sample has been reviewed", "這個範圍已判定完成":"This scope has been reviewed",
+    "已走完一輪，還有待確認的字":"Round complete; some characters need review", "繼續待確認字":"Continue pending review",
+    "完成":"Done", "類型":"Type", "誤植":"Mismatch", "待確認":"Pending", "缺字":"Missing",
+    "參考存疑":"Reference doubts", "答案衝突":"Conflicting answers", "全部":"All",
+    "目前沒有這類問題字。":"No issues of this type yet.", "系統參考":"System reference",
+    "參考":"Reference", "黑體":"Sans serif", "宋體":"Serif", "楷體":"Kai",
+    "系統也沒有這個字形":"No system reference glyph", "參考字也存疑":"Question the reference",
+    "答案衝突：請重新判定":"Conflicting answers: please review again",
+    "正確":"Correct", "已選正確":"Marked correct", "已回報誤植":"Mismatch marked", "尚未判定":"Not reviewed",
+    "我看到的字是…":"The character I see is…", "回報誤植":"Mark mismatch", "無法辨認":"Can't identify",
+    "缺字／空白字形":"Missing / blank glyph", "無單字拼音":"No single-character reading",
+    "可疑項目不等於錯字；共用輪廓可能是正常設計。":"Flags are not errors. Shared outlines can be intentional.",
+    "範圍缺字":"Missing in scope", "重複輪廓":"Shared outlines", "字名／字碼不同":"Name / Unicode mismatch",
+    "空白字形":"Blank glyph", "輪廓未比較":"Outline not compared",
+    "更新追查與修復建議":"Refresh traces & suggestions",
+    "只有人工確認的字形來源可修正；來源不明或答案衝突不猜改。":"Only human-confirmed donors can be used. Unknown or disputed sources are not guessed.",
+    "可修正":"Confirmed donor", "按更新查看目前的交換、連鎖與修復來源。":"Refresh to view swaps, chains and repair donors.",
+    "範例":"Samples", "中文與標點":"Chinese & punctuation", "英文與易混淆字":"English & lookalikes",
+    "產生最新修復預覽":"Generate repair preview",
+    "橘框代表缺字／備援未採用；檢查排版不會自動修正字距或連字。":"Orange boxes mark missing / excluded fallback glyphs. Proofing does not repair spacing or ligatures.",
+    "原版":"Original", "修正版":"Repaired", "尚無修復預覽或沒有安全修正來源。":"No preview yet, or no safe repair donor.",
+    "任務依原檔 SHA-256 與字面核對，不包含或傳送字檔。":"Tasks match the original SHA-256 and face. They do not include or upload fonts.",
+    "核對者名稱":"Reviewer name", "起始序號":"Start index", "任務字數":"Task size",
+    "匯出核對任務／答案…":"Export task / answers…", "匯入任務／合併答案…":"Import task / merge answers…",
+    "接收者匯入相同字檔後匯入任務，即可核對；完成後匯出同一段序號的答案。分工序號依字碼排序，不是隨機出題順序。":"Import the same fonts, then the task. Export the same index range to return answers. Indices use codepoint order, not random review order.",
+    "點選衝突字，重新提交判定才會解除修復封鎖。":"Open a conflict and submit a new judgment to unlock repair.",
+    "請輸入核對者名稱、有效的起始序號及任務字數。":"Enter a reviewer name, valid start index and task size.",
+    "核對任務已匯出，不包含字檔。":"Review task exported without font files.",
+    "核對任務已合併；不同答案保留為待複核。":"Task merged; conflicting answers need reconciliation.",
+    "無法匯入任務：請先匯入相同原字檔及字面，並確認任務格式。":"Cannot import task. Import identical original fonts and faces, and check the task format.",
+    "開啟檢查進度…":"Open progress…", "開啟檢查進度":"Open progress", "保存進度副本…":"Save progress copy…",
+    "保存進度":"Save progress", "顯示工作階段資料夾":"Show session folder", "使用說明":"Help",
+    "新的檢查…":"New review…", "新的檢查":"New review", "建立新的檢查？":"Start a new review?",
+    "目前進度會保留，不會刪除原字檔。":"Current progress and original fonts will be preserved.", "建立":"Create",
+    "指定要複查的字":"Choose a character to revisit", "前往":"Go", "例如：":"For example: ", "請確認":"Please check",
+    "匯入字檔，開始逐字確認。":"Import fonts to start reviewing.", "匯入新的字檔。":"Import new fonts.",
+    "正在讀取字碼與實際字形…":"Reading mappings and outlines…", "請選擇字體集合中的字面。":"Select a face from the collection.",
+    "正在準備檢查字元…":"Preparing review characters…", "檢查已開始。":"Review started.", "抽樣檢查已開始。":"Sample review started.",
+    "判定已保存。":"Judgment saved.", "接著追查回報字的字碼對應。":"Following the reported character's mapping.",
+    "已回到上一題，可重新判定。":"Returned to the previous character.", "已恢復保存的進度。":"Progress restored.",
+    "正在匯出目前建議與報告…":"Exporting suggestions and reports…", "報告已保存；尚未確認的字也已列出。":"Reports saved, including pending characters.",
+    "選擇修正字檔與報告的保存位置":"Choose a destination for repaired fonts and reports", "選擇報告保存位置":"Choose a report destination",
+    "這個範圍沒有可檢查的字元。":"No reviewable characters in this scope.", "抽樣數量請輸入大於 0 的整數。":"Enter a positive integer sample size.",
+    "無法讀取字檔":"Cannot read font", "這個字檔與字面已匯入。":"This font face is already imported.",
+    "macOS 無法載入這個字面的輪廓。":"macOS could not load this face's outlines.",
+    "請只輸入一個你實際看到的字（不是拼音或說明）。":"Enter one character you see, not a reading or explanation.",
+    "請只輸入一個你看到的字。":"Enter exactly one character you see.",
+    "輸入的字與題目相同；若字形正確請按「正確」。":"The character matches the prompt. Mark it Correct if the glyph is correct.",
+    "請分別判定每個字檔，或按「確認，下一題」。":"Judge each font, or use Confirm & next.",
+    "請先提交目前輸入的字，或清空輸入，再複查其他字。":"Submit or clear the current input before revisiting another character.",
+    "找不到保存的字檔。請保留工作階段資料夾，或重新匯入原檔。":"Saved fonts could not be found. Keep the session folder or reimport originals.",
+    "繁簡篩選使用系統單字轉換，共用字保留；部分一對多或古字需人工判斷，不改動字檔編碼。":"System single-character conversion filters Chinese variants. Shared characters remain; ambiguous forms need human review. Encoding is unchanged."
+]
+
+func english(_ value: String) -> String {
+    if let text = englishStrings[value] { return text }
+    if value.hasPrefix("Enter：") {
+        return "Enter confirms unmarked fonts and advances. Type one character to report what you see; the next question follows that character. Enter during IME composition only commits composition.\n\nProgress is saved locally. Missing characters depend on the selected scope. Readings are system-generated and may be incomplete. Switch the reference font or flag doubts when needed.\n\nRepairs use human-confirmed donors only. Originals are preserved; fonts are never automatically installed. Conflicts and unknown sources remain unresolved."
+    }
+    for (pattern,template) in [
+        (#"^已匯入 (.+) 個字檔。$"#,"Imported $1 fonts."),
+        (#"^(.+) 個非空白字形$"#,"$1 nonblank mapped characters"),
+        (#"^已處理 (.+) / (.+) 字（含追查與缺字）$"#,"Processed $1 / $2 characters (including traces and missing)"),
+        (#"^抽樣數量請輸入 1 至 (.+) 的整數。$"#,"Enter an integer from 1 to $1."),
+        (#"^保存進度失敗：(.*)$"#,"Could not save progress: $1")
+    ] {
+        if let regex = try? NSRegularExpression(pattern:pattern), regex.firstMatch(in:value,range:NSRange(value.startIndex...,in:value)) != nil {
+            return regex.stringByReplacingMatches(in:value,range:NSRange(value.startIndex...,in:value),withTemplate:template)
+        }
+    }
+    if value.hasSuffix(" · 隨機抽樣") { return english(String(value.dropLast(" · 隨機抽樣".count))) + " · Random sample" }
+    return value
+}
