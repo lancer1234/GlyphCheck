@@ -11,6 +11,36 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 
 [![Release notes](assets/button-notes.svg)](RELEASE-1.2.0.md)
 
+## Screenshots / 介面截圖
+
+**雙字檔逐字核對 / Side-by-side glyph review**
+
+<img src="assets/screenshots/review.png" alt="GlyphCheck comparing two demo fonts against a system reference with Mandarin pinyin" width="760">
+
+**中英文詞句檢查 / Chinese and Latin text proofing**
+
+<img src="assets/screenshots/text-proof.png" alt="Text proof workbench comparing original font rendering with the system reference" width="760">
+
+<details>
+<summary>主畫面、多人核對、設定與關於 / More screenshots</summary>
+
+### 主畫面 / Welcome
+
+<img src="assets/screenshots/welcome.png" alt="GlyphCheck import and review scope settings" width="760">
+
+### 多人核對 / Team review
+
+<img src="assets/screenshots/team-review.png" alt="Portable review task export and merge interface using demo data" width="760">
+
+### 設定與關於 / Settings and About
+
+<img src="assets/screenshots/settings.png" alt="Native settings with Traditional Chinese, Simplified Chinese and English UI options" width="360">
+<img src="assets/screenshots/about.png" alt="GlyphCheck About panel showing version, MAKOTO LAB ownership and project links" width="280">
+
+</details>
+
+截圖來自獨立示範環境，使用 [LXGW WenKai](https://github.com/lxgw/LxgwWenKai) 系列開源字型；不包含私人字檔或核對紀錄，App 下載包也不附帶這些字型。Screenshots use an isolated demo with open-source fonts, not a claim that those fonts contain mapping errors.
+
 ## 為什麼做這個工具？
 
 「字檔有這個字碼」不代表「它畫的就是這個字」。老字檔可能缺字、留白，也可能把完整字形對到錯的字碼。自動輪廓檢查或 OCR 不能取代人工確認。
