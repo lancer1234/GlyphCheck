@@ -226,6 +226,8 @@ Import one or two outline fonts, review randomly presented characters against a 
 
 Reviews are saved locally. Export missing/repaired/unresolved/pending reports and optionally generate a separately named repaired font using human-confirmed donors only. Conflicts and unknown donors are not guessed. GlyphCheck does not draw missing glyphs or repair shaping tables.
 
+<a id="acknowledgments"></a>
+
 ## 致謝 / Acknowledgments
 
 - 感謝 [justfont](https://justfont.com/) 國榕提供字體製作流程與工具定位的回饋，以及 [jf7000](https://justfont.com/jf7000) 字集，協助我們驗證字形名稱清單的支援。
