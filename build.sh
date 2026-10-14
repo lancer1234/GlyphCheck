@@ -36,6 +36,6 @@ cp "$task_src/LICENSE-MIT-LEGACY.txt" "$task_app/Contents/Resources/GlyphCheck-L
 cp "$task_src/THIRD_PARTY_NOTICES.md" "$task_app/Contents/Resources/THIRD_PARTY_NOTICES.md"
 swift "$task_src/make_icon.swift" "$task_cache/AppIcon.iconset"
 iconutil -c icns "$task_cache/AppIcon.iconset" -o "$task_app/Contents/Resources/AppIcon.icns"
-swiftc -swift-version 5 -parse-as-library -O -target arm64-apple-macos14.0 "$task_src/GlyphCheck.swift" "$task_src/Workbench.swift" "$task_src/ReviewFlow.swift" "$task_src/CrossRepair.swift" "$task_src/GlyphAudit.swift" "$task_src/Localization.swift" -o "$task_app/Contents/MacOS/GlyphCheck" -framework SwiftUI -framework AppKit -framework CoreText
+swiftc -swift-version 5 -parse-as-library -O -target arm64-apple-macos14.0 "$task_src/GlyphCheck.swift" "$task_src/Workbench.swift" "$task_src/ReviewFlow.swift" "$task_src/CrossRepair.swift" "$task_src/GlyphAudit.swift" "$task_src/AutoScreen.swift" "$task_src/Localization.swift" -o "$task_app/Contents/MacOS/GlyphCheck" -framework SwiftUI -framework AppKit -framework CoreText -framework Vision
 codesign --force --deep --sign - "$task_app"
 echo "$task_app"

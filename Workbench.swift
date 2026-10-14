@@ -273,7 +273,18 @@ final class ProofCanvas: NSView {
         HStack(spacing:0) {
           VStack(alignment:.leading,spacing:16) {
             Text("GlyphCheck").font(.headline).padding(.horizontal,16).padding(.top,24)
-            List(selection:$m.workTab) { ForEach(sections,id:\.0) { section in Label(m.t(section.1),systemImage:section.2).tag(section.0).padding(.vertical,5) } }.listStyle(.sidebar).disabled(m.busy)
+            ScrollView {
+                VStack(spacing:6) {
+                    ForEach(sections,id:\.0) { section in
+                        Button { m.workTab=section.0 } label: {
+                            Label(m.t(section.1),systemImage:section.2)
+                                .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,12).padding(.vertical,10)
+                                .foregroundStyle(m.workTab==section.0 ? Color.white : Color.primary)
+                                .background(m.workTab==section.0 ? Color.accentColor : Color.clear,in:RoundedRectangle(cornerRadius:8))
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(.horizontal,10)
+            }.disabled(m.busy)
           }.frame(width:174).background(Color(nsColor:.controlBackgroundColor))
           Divider()
           VStack(alignment:.leading,spacing:20) {

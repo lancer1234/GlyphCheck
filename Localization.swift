@@ -1,6 +1,8 @@
 import Foundation
 
 private let englishStrings: [String:String] = [
+    "初篩工具":"Scan tools", "重設初篩結果":"Reset screening results", "已初篩":"Screened",
+    "自動可疑":"Auto flags", "初篩字數":"Scan limit", "0＝全部；只掃尚未處理的單字碼項目":"0 = all; unscanned Unicode glyphs only", "停止初篩":"Stop scan", "自動初篩":"Auto-screen", "OCR 不一致、低信心與讀不出均需人工確認；未掃描與辨識相符不代表正確。":"OCR mismatches, low confidence and unreadable results need review. Unscanned or agreeing results are not proof of correctness.", "疑似誤植":"Possible mismatch", "辨識不穩定":"Unstable recognition", "無法辨識":"Unreadable", "辨識相符，未人工確認":"OCR agrees; not human-verified", "辨識結果":"Recognized", "OCR 信心值 %.2f（不是錯誤機率）":"OCR confidence %.2f (not an error probability)",
     "字集與判定說明":"Lists & review guidance", "字檔":"Font", "更多工具":"More tools",
     "清除清單":"Clear lists",
     "字集驗收":"Character-set audit", "Glyphs 字集驗收…":"Glyphs list audit…", "匯入 Glyphs 字形名稱清單":"Import Glyphs glyph-name lists", "匯入 Glyphs 清單…":"Import Glyphs lists…", "更新驗收":"Refresh audit", "匯出字集驗收…":"Export list audit…", "顯示":"Show", "全部":"All", "已找到／已確認":"Found / confirmed", "缺少":"Missing", "無法判定":"Unresolved", "待人工核對":"Needs manual review", "原字檔字形":"Original font glyph", "確認正確":"Confirm correct", "標記問題":"Flag issue", "核對註記":"Review note", "已標記問題，仍待人工核對。":"Issue flagged; still needs review.", "選擇一個項目查看實際字形。":"Select an item to inspect its actual glyph.", "匯入字檔與字形名稱清單，開始字集驗收。":"Import a font and glyph-name list to audit coverage.",

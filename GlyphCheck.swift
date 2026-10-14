@@ -56,6 +56,7 @@ struct Session: Codable {
     var externalRepairs: [String: [String: ExternalRepair]]? = nil
     var glyphLists:[GlyphNameList]? = nil
     var glyphReviews:[String:[String:GlyphReview]]? = nil
+    var autoFindings:[String:[String:AutoFinding]]? = nil
 }
 struct ExternalRepair: Codable { var sourceID: String; var codepoint: Int }
 struct RepairApproval: Codable {
@@ -190,6 +191,13 @@ func reviewable(_ cp: Int) -> Bool {
     @Published var glyphAudit:GlyphAuditResult? = nil
     @Published var glyphAuditFilter="all"
     @Published var selectedAuditRow=""
+    @Published var auditError:String? = nil
+    @Published var autoRunning=false
+    @Published var autoProgress=0
+    @Published var autoTotal=0
+    @Published var autoLimit="200"
+    var autoTask:Task<Void,Never>? = nil
+    var autoRunID=UUID()
     var donorFonts: [String: CTFont] = [:]
     let base: URL
     var folder: URL { base.appendingPathComponent(session.id, isDirectory: true) }
@@ -481,6 +489,7 @@ func reviewable(_ cp: Int) -> Bool {
                 loaded[f.id] = CTFontCreateWithGraphicsFont(cg,CGFloat(f.upem),nil,nil)
             }
             session = s; loadedFonts = loaded; scope = s.scope; undoStack = []
+            autoTask?.cancel();autoRunID=UUID();autoRunning=false;autoTask=nil
             glyphAudit=nil;selectedAuditRow=""
             loadRepairSources()
             scriptVariant = s.scriptVariant ?? "all"; sampleMode = s.reviewMode == "sample"
@@ -497,6 +506,7 @@ func reviewable(_ cp: Int) -> Bool {
         if let p = UserDefaults.standard.string(forKey: "lastSession") { openSession(URL(fileURLWithPath: p)) }
     }
     func newSession() {
+        autoTask?.cancel();autoRunID=UUID();autoRunning=false;autoTask=nil
         glyphAudit=nil;selectedAuditRow=""
         let a = NSAlert(); a.messageText = t("建立新的檢查？"); a.informativeText = t("目前進度會保留，不會刪除原字檔。"); a.addButton(withTitle: t("建立")); a.addButton(withTitle: t("取消"))
         guard a.runModal() == .alertFirstButtonReturn else { return }

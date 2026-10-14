@@ -7,7 +7,7 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 [![MAKOTO LAB](assets/button-studio.svg)](https://makotolab.tw/)
 [![Buy Me a Coffee](assets/button-coffee.svg)](https://buymeacoffee.com/MakotoLab)
 
-**Latest: 1.3.1** — Glyphs glyph-name list audits, synchronized article comparison, accepted cross-font repairs and visual reports.
+**Latest: 1.4.0** — Fixed legacy-font list audits and added on-device OCR screening with human confirmation.
 
 ### 1.3 新流程
 
@@ -23,7 +23,7 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 
 1.0–1.2 進度仍可開啟，但舊的候選不視為已驗收，必須依新流程確認。原有 CSV／JSON 與缺字回報保留；預覽變動和正式修復分開計數。
 
-[![Release notes](assets/button-notes.svg)](RELEASE-1.3.1.md)
+[![Release notes](assets/button-notes.svg)](RELEASE-1.4.0.md)
 
 ## Screenshots / 介面截圖
 
@@ -63,6 +63,8 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 ## 為什麼做這個工具？
 
 「字檔有這個字碼」不代表「它畫的就是這個字」。老字檔可能缺字、留白，也可能把完整字形對到錯的字碼。自動輪廓檢查或 OCR 不能取代人工確認。
+
+1.4 可在「字集驗收」匯入 Glyphs 名稱清單後按「自動初篩」，以本機 Apple Vision 辨識實際字形。預設每次 200 個，0 表示所有尚未初篩項目；可停止、續掃或重置結果。「自動可疑」列出辨識成另一字、不一致、低信心及讀不出的項目，逐字人工確認。無字碼變體不作 OCR 判定。辨識相符不等於正確，信心值不是錯字機率；書法、異體、罕用字及拉丁單字可能誤認或漏判。報告保留候選與理由，原字檔不自動改動。
 
 GlyphCheck 讓你逐字看、逐字判定；遇到誤植會接著追查你看到的字，最後產出可以交給 AI 或字體修復者使用的清單。
 
@@ -209,8 +211,8 @@ PYTHON_RUNTIME=/path/to/python APP_OUTPUT=/path/to/字形檢查器.app zsh build
 python3 -m venv .venv
 .venv/bin/pip install fonttools==4.66.1
 .venv/bin/python test_backend.py
-swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift ReviewFlow.swift CrossRepair.swift GlyphAudit.swift Localization.swift test_engine.swift \
-  -o test-engine -framework SwiftUI -framework AppKit -framework CoreText
+swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift ReviewFlow.swift CrossRepair.swift GlyphAudit.swift AutoScreen.swift Localization.swift test_engine.swift \
+  -o test-engine -framework SwiftUI -framework AppKit -framework CoreText -framework Vision
 ./test-engine
 ```
 

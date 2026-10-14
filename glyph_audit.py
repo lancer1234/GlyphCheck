@@ -37,21 +37,32 @@ def audit(session_path,out=None):
     for meta in session['fonts']:
         raw=Path(meta['source']).read_bytes()
         if hashlib.sha256(raw).hexdigest()!=meta['sha256']: raise ValueError('原字檔已變動，請重新匯入。')
-        f=TTFont(meta['source'],fontNumber=meta['face']);gs=f.getGlyphSet();cm=TTFont(meta['preview']).getBestCmap() or {}
+        # cmap normalization can change synthesized glyph names in post-format-3 fonts.
+        # Read outlines, metrics and cmap from the SAME verified preview, never mix names.
+        f=TTFont(meta['preview']);gs=f.getGlyphSet();cm=f.getBestCmap() or {}
+        has_names='CFF ' in f or ('post' in f and f['post'].formatType!=3)
+        bounds_cache={}
         rows=[]; votes=(session.get('glyphReviews') or {}).get(meta['id'],{})
         for group in lists:
             for name in group['entries']:
-                cp=unicode_for(name);glyph=name if name in gs else cm.get(cp) if cp is not None else None
-                visible=False
+                cp=unicode_for(name);named=has_names and name in gs
+                glyph=name if named else cm.get(cp) if cp is not None else None
+                visible=False;read_error=''
                 if glyph and glyph!='.notdef':
                     from fontTools.pens.boundsPen import BoundsPen
-                    pen=BoundsPen(gs);gs[glyph].draw(pen);visible=pen.bounds is not None or (cp is not None and chr(cp).isspace())
+                    try:
+                        if glyph not in bounds_cache:
+                            pen=BoundsPen(gs);gs[glyph].draw(pen);bounds_cache[glyph]=pen.bounds is not None
+                        visible=bounds_cache[glyph] or (cp is not None and chr(cp).isspace())
+                    except Exception as exc: read_error='輪廓或字寬無法讀取：'+str(exc)
                 key=group['sha256']+':'+name
                 fp=hashlib.sha256(f'{meta["sha256"]}:{meta["face"]}:{key}:{glyph}'.encode()).hexdigest()
                 vote=votes.get(key,{}) if votes.get(key,{}).get('fingerprint')==fp else {}
-                status=('found' if vote.get('decision')=='correct' else 'pending') if visible else ('missing' if cp is not None or name in gs else 'unresolved')
-                reason=('原字檔含同名字形' if name in gs else '依明確 Unicode／標準 AGL 對應') if glyph else ('已知字碼但字檔缺少' if cp is not None else '字檔沒有同名項目，且無可靠單字碼對應；不猜測變體')
-                rows.append(dict(id=key,list=group['name'],name=name,codepoint=f'U+{cp:04X}' if cp is not None else '',character=chr(cp) if cp is not None else '',glyph=glyph or '',glyphID=f.getGlyphID(glyph) if glyph else None,present=visible,status=status,reason=reason,fingerprint=fp,decision=vote.get('decision',''),note=vote.get('note','')))
+                status='unresolved' if read_error else ('found' if vote.get('decision')=='correct' else 'pending') if visible else ('missing' if cp is not None or named else 'unresolved')
+                reason=read_error or (('原字檔含同名字形' if named else '依明確 Unicode／標準 AGL 對應') if glyph else ('已知字碼但字檔缺少' if cp is not None else '字檔未保留可用的同名項目，且無可靠單字碼對應；不猜測變體'))
+                screening=(session.get('autoFindings') or {}).get(meta['id'],{}).get(key,{})
+                screening=screening if screening.get('fingerprint')==fp else {}
+                rows.append(dict(id=key,list=group['name'],name=name,codepoint=f'U+{cp:04X}' if cp is not None else '',character=chr(cp) if cp is not None else '',glyph=glyph or '',glyphID=f.getGlyphID(glyph) if glyph else None,present=visible,status=status,reason=reason,fingerprint=fp,decision=vote.get('decision',''),note=vote.get('note',''),autoKind=screening.get('kind','not_scanned'),autoObserved=screening.get('observed',''),autoConfidence=screening.get('confidence',0),autoReason=screening.get('reason','')))
         result.append(dict(id=meta['id'],font=meta['name'],sha256=meta['sha256'],rows=rows))
         figures.append((f,gs))
     if out:
@@ -66,6 +77,7 @@ def audit(session_path,out=None):
                 writer=csv.DictWriter(fp,fieldnames=list(info['rows'][0]) if info['rows'] else ['name']);writer.writeheader();writer.writerows(info['rows'])
             for row in info['rows']:
                 body.append('<article><h3>'+html.escape(row['list']+' · '+row['name']+' '+row['codepoint'])+'</h3><p>'+html.escape(labels[row['status']]+' · '+row['reason']+' · '+row['note'])+'</p>')
+                if row['autoKind']!='not_scanned': body.append('<p>自動初篩（不是人工確認）：'+html.escape(row['autoKind']+' · '+row['autoObserved']+' · '+row['autoReason'])+'</p>')
                 if row['present']: body.append(glyph_image(f,{0:row['glyph']},0,gs))
                 body.append('</article>')
         body.append('<footer>© MAKOTO LAB · 不包含完整字檔，原檔未修改。</footer></html>')

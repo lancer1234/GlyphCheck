@@ -51,6 +51,23 @@ class Tests(unittest.TestCase):
             self.assertNotIn(str(root),report)
             self.assertEqual(len(result['fonts'][0]['rows']),len(lists[0]['entries']))
             names.write_text('文章不是字形名稱');self.assertRaises(ValueError,glyph_audit.parse_lists,[names])
+    def test_post3_big5_audit_uses_one_glyph_namespace(self):
+        from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);p=root/'legacy.ttf';fixture(p)
+            f=TTFont(p);f['post'].formatType=3
+            cmap=CmapSubtable.newSubtable(4);cmap.platformID=3;cmap.platEncID=4;cmap.language=0;cmap.cmap={32:'gA',65:'gB',66:'gC'}
+            f['cmap'].tables=[cmap];f.save(p)
+            meta=backend.inspect(p,root/'fonts')['fonts'][0]
+            names=root/'names.txt';names.write_text('space\nA\nB\nA.vert\n')
+            session=dict(fonts=[meta],glyphLists=glyph_audit.parse_lists([names])['lists'])
+            sp=root/'s.json';sp.write_text(json.dumps(session))
+            rows=glyph_audit.audit(sp)['fonts'][0]['rows']
+            self.assertTrue(rows[0]['present']);self.assertEqual(rows[0]['glyphID'],meta['glyphs']['32'])
+            self.assertEqual(rows[-1]['status'],'unresolved')
+            session['autoFindings']={meta['id']:{rows[1]['id']:dict(fingerprint=rows[1]['fingerprint'],kind='mismatch',observed='B',confidence=.9,reason='OCR candidate')}}
+            sp.write_text(json.dumps(session));report=glyph_audit.audit(sp,root/'out')['fonts'][0]['rows']
+            self.assertEqual(report[1]['autoObserved'],'B');self.assertEqual(report[1]['status'],'pending')
 
     def test_cross_font_accepted_only_and_integrity(self):
         with tempfile.TemporaryDirectory() as tmp:
