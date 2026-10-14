@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 
 @main struct EngineTests {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("GlyphCheck-tests-" + UUID().uuidString)
         let m = Checker(storageRoot: root,persistRecent: false)
@@ -76,6 +76,58 @@ import AppKit
         let bitmap = view.bitmapImageRepForCachingDisplay(in:view.bounds)!
         view.cacheDisplay(in:view.bounds,to:bitmap)
         precondition(bitmap.pixelsWide > 0)
+        precondition(CharacterList.parse("U+0041\nU+0041\nU+20000") == [65,0x20000])
+        precondition(CharacterList.parse("常常 A\nB") == [65,66,0x5e38])
+        do { try CharacterList(name:"bad",characters:[0xd800]).validate(); preconditionFailure("Invalid scalar list") } catch {}
+        try m.storeCharacterList(CharacterList(name:"Sample",characters:[65,66]))
+        let restored = Checker(storageRoot:root,persistRecent:false)
+        precondition(restored.characterSets.count==1 && m.custom=="AB")
+        m.chooseGoal("text");precondition(m.scope=="自訂文字")
+        reset();m.mark(a,"variant");m.quickAdvance()
+        precondition(m.session.answers["A"]?["65"]?.kind=="variant" && m.completed==0)
+        precondition(m.knownIssues.contains { $0.kind=="variant" })
+        reset();m.session.reviewMode="priority";m.session.fonts[0].scan=[ScanIssue(cp:67,kind:"duplicate",detail:"fixture")]
+        m.session.answers["A"]=["65":Answer(kind:"mismatch",actual:"B")]
+        precondition(ReviewQueue.make(session:m.session,characters:[65,66,67]).last==66)
+        m.session.referenceDoubts=[67]
+        precondition(ReviewQueue.make(session:m.session,characters:[65,66,67]).last==67)
+        m.session.reviewMode="sample";m.session.sampled=[65,66];m.prioritizePending()
+        precondition(m.session.reviewMode=="sample" && m.session.sampled==[65,66] && m.session.queueMode=="priority")
+        let candidate = RepairSuggestion(character:"A",donor:"B",fingerprint:"evidence",decision:"pending")
+        m.previewResult=RepairResult(output:"fixture",fonts:[RepairFont(id:"A",font:"A",output:nil,suggestions:[candidate],relationships:[])])
+        precondition(!m.hasAcceptedRepairs)
+        m.acceptRepair(font:"A",suggestion:candidate,decision:"accepted");precondition(m.hasAcceptedRepairs)
+        var changed=candidate;changed.fingerprint="changed"
+        precondition(m.approvalDecision(font:"A",suggestion:changed)=="pending")
+        m.acceptRepair(font:"A",suggestion:candidate,decision:"excluded");precondition(!m.hasAcceptedRepairs)
+        reset();m.chooseGoal("text");m.custom="U+0041";m.setStrategy("full");m.start()
+        while m.busy { try await Task.sleep(nanoseconds:10_000_000) }
+        precondition(m.session.inputText=="U+0041" && m.session.domain.contains(85) && !m.session.domain.contains(65))
+        precondition(m.session.taskGoal=="text" && m.session.reviewMode=="full")
+        let left=ProofScroll(frame:NSRect(x:0,y:0,width:300,height:220)),right=ProofScroll(frame:NSRect(x:0,y:0,width:300,height:220))
+        for view in [left,right] {
+            view.canvas.font=CTFontCreateWithName("Helvetica" as CFString,24,nil)
+            view.canvas.text=(1...60).map { "Paragraph \($0): long article selection and scroll comparison." }.joined(separator:"\n\n")
+            view.canvas.size=24; view.group="unit-scroll"; view.resizeProof()
+            precondition(view.canvas.bounds.height>2200)
+        }
+        left.canvas.selection=NSRange(location:30,length:20);left.broadcast(range:left.canvas.selection)
+        precondition(right.canvas.selection==left.canvas.selection)
+        left.contentView.scroll(to:NSPoint(x:0,y:left.canvas.bounds.height/2));left.broadcast()
+        let li=left.canvas.index(at:NSPoint(x:14,y:left.contentView.bounds.maxY-18))
+        let ri=right.canvas.index(at:NSPoint(x:14,y:right.contentView.bounds.maxY-18))
+        precondition(abs(li-ri)<100)
+        precondition(left.canvas.scrollY(for:0)>left.canvas.scrollY(for:1000))
+        print("PASS: complete long-article layout, bidirectional scroll anchor and synchronized selection")
+        let auditRow=GlyphAuditRow(id:"group:A",list:"demo",name:"A",codepoint:"U+0041",character:"A",glyph:"A",glyphID:1,present:true,status:"pending",reason:"fixture",fingerprint:"test",decision:"",note:"")
+        m.glyphAudit=GlyphAuditResult(fonts:[GlyphAuditFont(id:"A",font:"demo",sha256:"test",rows:[auditRow])])
+        m.judgeGlyph("A",auditRow,"correct",note:"confirmed")
+        precondition(m.glyphAudit?.fonts[0].rows[0].status=="found")
+        let persisted=try JSONDecoder().decode(Session.self,from:Data(contentsOf:m.saveURL))
+        precondition(persisted.glyphReviews?["A"]?["group:A"]?.note=="confirmed")
+        m.judgeGlyph("A",auditRow,"issue");precondition(m.glyphAudit?.fonts[0].rows[0].status=="pending")
+        print("PASS: glyph-name audit review, issue flags and persisted notes")
+        print("PASS: saved character lists, Unicode lists, task goals, possible variants, priority tiers, sample provenance and repair acceptance")
         print("PASS: English, Latin scopes, reviewer conflicts, idempotence, reconciliation undo, invalid tasks, CoreText proof rendering")
         print("PASS: quick confirmation, mismatch priority, undo, input validation, checkpoint, random sampling, script filters, UI conversion, issue navigation, missing issues, legacy session")
     }

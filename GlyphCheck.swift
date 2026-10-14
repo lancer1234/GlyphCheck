@@ -48,6 +48,18 @@ struct Session: Codable {
     var reviewVotes: [String: [String: [ReviewVote]]]? = nil
     var importedTasks: [String]? = nil
     var proofText: String? = nil
+    var inputText: String? = nil
+    var taskGoal: String? = nil
+    var repairApprovals: [String: [String: RepairApproval]]? = nil
+    var queueMode: String? = nil
+    var repairSources: [FontRecord]? = nil
+    var externalRepairs: [String: [String: ExternalRepair]]? = nil
+    var glyphLists:[GlyphNameList]? = nil
+    var glyphReviews:[String:[String:GlyphReview]]? = nil
+}
+struct ExternalRepair: Codable { var sourceID: String; var codepoint: Int }
+struct RepairApproval: Codable {
+    var fingerprint: String; var decision: String; var reviewedAt: String; var reviewer: String
 }
 struct ReviewVote: Codable, Equatable { var reviewer: String; var answer: Answer }
 struct TaskFont: Codable { var sha256: String; var face: Int; var answers: [String: Answer]; var conflicts: [String: [ReviewVote]]? = nil }
@@ -68,13 +80,13 @@ struct ReviewPackage: Codable {
         for font in fonts {
             guard session.fonts.contains(where: { $0.sha256 == font.sha256 && $0.face == font.face }),
                   font.answers.allSatisfy({ key,a in
-                      guard let cp = Int(key), allowed.contains(cp), ["correct","mismatch","uncertain","skipped"].contains(a.kind) else { return false }
+                      guard let cp = Int(key), allowed.contains(cp), ["correct","mismatch","uncertain","skipped","variant"].contains(a.kind) else { return false }
                       return a.kind == "mismatch" ? a.actual.unicodeScalars.count == 1 && a.actual != char(cp) && reviewable(Int(a.actual.unicodeScalars.first!.value)) : a.actual.isEmpty
                   }), (font.conflicts ?? [:]).allSatisfy({ key,votes in
                       guard let cp = Int(key), allowed.contains(cp), votes.count <= 100 else { return false }
                       return votes.allSatisfy { vote in
                           let a = vote.answer
-                          return !vote.reviewer.isEmpty && ["correct","mismatch","uncertain","skipped"].contains(a.kind) && (a.kind == "mismatch" ? a.actual.unicodeScalars.count == 1 && a.actual != char(cp) : a.actual.isEmpty)
+                          return !vote.reviewer.isEmpty && ["correct","mismatch","uncertain","skipped","variant"].contains(a.kind) && (a.kind == "mismatch" ? a.actual.unicodeScalars.count == 1 && a.actual != char(cp) : a.actual.isEmpty)
                       }
                   }) else { throw CocoaError(.fileReadCorruptFile) }
         }
@@ -94,12 +106,12 @@ struct Selection {
         let transform = StringTransform(variant == "traditional" ? "Simplified-Traditional" : "Traditional-Simplified")
         return (s.applyingTransform(transform, reverse: false) ?? s) == s
     }
-    static func make(fonts: [FontRecord], scope: String, custom: String, variant: String, sampleSize: Int?) throws -> Selection {
+    static func make(fonts: [FontRecord], scope: String, custom: String, variant: String, sampleSize: Int?,literalText:Bool=false) throws -> Selection {
         let pool: Set<Int>
         switch scope {
         case "漢字基本區": pool = Set(0x4e00...0x9fff)
         case "漢字基本＋擴展 A": pool = Set(0x3400...0x4dbf).union(0x4e00...0x9fff)
-        case "自訂文字": pool = Set(custom.unicodeScalars.map { Int($0.value) })
+        case "自訂文字": pool = Set(CharacterList.parse(custom,codepointLines: !literalText))
         case "英文／基本拉丁": pool = Set(0x21...0x7e)
         case "拉丁字母與重音": pool = Set(0x21...0x7e).union(0xa1...0x24f).union(0x1e00...0x1eff)
         case "數字與標點": pool = Set("0123456789.,:;!?\"'()[]{}+-=*/\\@#$%&_|<>，。！？：；、（）「」『』【】《》—…".unicodeScalars.map { Int($0.value) })
@@ -165,9 +177,20 @@ func reviewable(_ cp: Int) -> Bool {
     @Published var reviewer = ""
     @Published var taskOffset = "1"
     @Published var taskCount = "100"
+    @Published var taskGoal = "font"
+    @Published var reviewStrategy = "priority"
+    @Published var characterSets: [CharacterList] = []
+    @Published var selectedCharacterSet = ""
     var translations: [String: String] = [:]
     var undoStack: [UndoEntry] = []
     var loadedFonts: [String: CTFont] = [:]
+    @Published var donorID = ""
+    @Published var donorTargets = ""
+    @Published var installedDonor = "PingFangTC-Regular"
+    @Published var glyphAudit:GlyphAuditResult? = nil
+    @Published var glyphAuditFilter="all"
+    @Published var selectedAuditRow=""
+    var donorFonts: [String: CTFont] = [:]
     let base: URL
     var folder: URL { base.appendingPathComponent(session.id, isDirectory: true) }
     var saveURL: URL { folder.appendingPathComponent("進度.glyphcheck") }
@@ -179,6 +202,7 @@ func reviewable(_ cp: Int) -> Bool {
         base = storageRoot ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("字形檢查器/Sessions", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        characterSets = (try? JSONDecoder().decode([CharacterList].self,from:Data(contentsOf:base.appendingPathComponent("CharacterSets.json")))) ?? []
     }
     func t(_ value: String) -> String {
         if uiLanguage == "english" { return english(value) }
@@ -262,22 +286,26 @@ func reviewable(_ cp: Int) -> Bool {
         guard !busy, !session.fonts.isEmpty else { return }
         let requested = sampleMode ? Int(sampleCount.trimmingCharacters(in: .whitespacesAndNewlines)) : nil
         if sampleMode && (requested == nil || requested! <= 0) { error = "抽樣數量請輸入大於 0 的整數。"; return }
-        let fonts = session.fonts, selectedScope = scope, input = custom, variant = scriptVariant
+        let fonts = session.fonts, selectedScope = scope, input = custom, variant = scriptVariant, goal = taskGoal
         busy = true; status = "正在準備檢查字元…"
         Task {
             do {
-                let selection = try await Task.detached { try Selection.make(fonts: fonts,scope: selectedScope,custom: input,variant: variant,sampleSize: requested) }.value
+                let selection = try await Task.detached { try Selection.make(fonts: fonts,scope: selectedScope,custom: input,variant: variant,sampleSize: requested,literalText:goal=="text") }.value
                 session.scope = selectedScope; session.domain = selection.selected; session.population = selection.population
                 session.sampled = requested == nil ? nil : selection.selected
                 session.reviewMode = requested == nil ? "full" : "sample"; session.requestedSampleSize = requested
                 session.scriptVariant = variant; session.uiLanguage = uiLanguage; session.started = true
+                session.taskGoal = taskGoal; session.inputText = selectedScope == "自訂文字" ? input : nil
+                if taskGoal == "text" { proofText = input }
                 let eligible = selection.selected.filter { cp in fonts.contains { $0.visible[String(cp)] == true } }
-                let flagged = Set(fonts.flatMap { ($0.scan ?? []).map(\.cp) })
-                session.remaining = eligible.filter { !flagged.contains($0) }.shuffled() + eligible.filter { flagged.contains($0) }.shuffled()
+                session.reviewMode = requested != nil ? "sample" : reviewStrategy == "priority" ? "priority" : "full"
+                session.queueMode = session.reviewMode
+                session.remaining = ReviewQueue.make(session:session,characters:eligible)
                 session.current = session.remaining.popLast(); reference = variant == "simplified" ? "PingFang SC" : "PingFang TC"
                 loadDrafts(); refresh(); save(); status = requested == nil ? "檢查已開始。" : "抽樣檢查已開始。"
             } catch { self.error = error.localizedDescription }
             busy = false
+            if session.started && taskGoal == "repair" { openWorkbench("repair"); preparePreview() }
         }
     }
     func loadDrafts() {
@@ -314,6 +342,7 @@ func reviewable(_ cp: Int) -> Bool {
         let a = NSAlert(); a.messageText = "字形檢查器"
         a.informativeText = "Enter：確認並進入下一題。沒有輸入時視為正確；輸入一個字時記錄為你看到的字，接著追查該字。中文輸入法選字時，Enter 只確認選字。\n\n進度自動保存在本機，可用「繼續上次檢查」恢復。缺字以選定範圍為準；空白及控制字元不出題。\n\n拼音是系統的單字轉寫，多音字和罕見字可能不完整。參考字存疑時，可切換字體或保留待確認。\n\n修正只使用人工確認的字形來源；不猜補字、不覆寫原檔、不安裝字體。來源衝突、尚未確認及缺字會列入報告。"
         a.messageText = t(a.messageText); a.informativeText = t(a.informativeText)
+        a.informativeText += "\n\n" + t("字形不同可能是合理變體，請保留待確認。修復候選須逐項驗收；判定變更後需重新驗收。匯出的 HTML 包含字形圖片及文章片段，分享前請檢查私人資料。")
         a.addButton(withTitle: t("好")); a.runModal()
     }
     var canNext: Bool {
@@ -408,7 +437,7 @@ func reviewable(_ cp: Int) -> Bool {
             for cp in session.domain {
                 if f.visible[String(cp)] != true {
                     result.append(ReviewIssue(font: f.id,cp: cp,kind: "missing",actual: ""))
-                } else if let a = answers[String(cp)], ["mismatch","uncertain"].contains(a.kind) {
+                } else if let a = answers[String(cp)], ["mismatch","uncertain","variant"].contains(a.kind) {
                     result.append(ReviewIssue(font: f.id,cp: cp,kind: a.kind,actual: a.actual))
                 }
                 if session.reviewConflicts?[f.id]?[String(cp)] != nil { result.append(ReviewIssue(font: f.id,cp: cp,kind: "conflict",actual: "")) }
@@ -434,6 +463,7 @@ func reviewable(_ cp: Int) -> Bool {
         }
     }
     func openSession(_ url: URL? = nil) {
+        let requestedRepair = taskGoal == "repair"
         var target = url
         if target == nil {
             let p = NSOpenPanel(); p.title = t("開啟檢查進度"); p.allowedContentTypes = [UTType(filenameExtension: "glyphcheck") ?? .json,.json]
@@ -451,22 +481,30 @@ func reviewable(_ cp: Int) -> Bool {
                 loaded[f.id] = CTFontCreateWithGraphicsFont(cg,CGFloat(f.upem),nil,nil)
             }
             session = s; loadedFonts = loaded; scope = s.scope; undoStack = []
+            glyphAudit=nil;selectedAuditRow=""
+            loadRepairSources()
             scriptVariant = s.scriptVariant ?? "all"; sampleMode = s.reviewMode == "sample"
             sampleCount = String(s.requestedSampleSize ?? 200); uiLanguage = s.uiLanguage ?? uiLanguage
+            taskGoal = s.taskGoal ?? "font"; reviewStrategy = s.reviewMode == "sample" ? "sample" : s.reviewMode == "priority" ? "priority" : "full"
+            custom = s.inputText ?? ""
             proofText = s.proofText ?? proofText; previewResult = nil; repairedFonts = [:]
             reference = scriptVariant == "simplified" ? "PingFang SC" : "PingFang TC"
             loadDrafts(); refresh(); status = "已恢復保存的進度。"
+            if requestedRepair { openWorkbench("repair"); preparePreview() }
         } catch { self.error = error.localizedDescription }
     }
     func resume() {
         if let p = UserDefaults.standard.string(forKey: "lastSession") { openSession(URL(fileURLWithPath: p)) }
     }
     func newSession() {
+        glyphAudit=nil;selectedAuditRow=""
         let a = NSAlert(); a.messageText = t("建立新的檢查？"); a.informativeText = t("目前進度會保留，不會刪除原字檔。"); a.addButton(withTitle: t("建立")); a.addButton(withTitle: t("取消"))
         guard a.runModal() == .alertFirstButtonReturn else { return }
         persistDrafts(); save(); session = Session(); loadedFonts = [:]; drafts = [:]; typed = [:]; undoStack = []; completed = 0; showIssues = false; showWorkbench = false; previewResult = nil; repairedFonts = [:]; status = "匯入新的字檔。"
     }
     func export(attempt: Bool) {
+        if attempt && (!showWorkbench || previewResult == nil) { openWorkbench("repair"); preparePreview(); return }
+        if attempt && !hasAcceptedRepairs { error = "請先逐項驗收修復候選，再匯出。"; return }
         let p = NSOpenPanel(); p.title = t(attempt ? "選擇修正字檔與報告的保存位置" : "選擇報告保存位置")
         p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
         guard p.runModal() == .OK, let root = p.url else { return }
@@ -555,6 +593,8 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
         ScrollView {
             VStack(spacing: 25) {
                 VStack(spacing: 12) { Image(systemName: "character.magnify").font(.system(size: 48,weight: .light)).foregroundStyle(.tint); Text(m.t("讓字形對回正確的字")).font(.largeTitle.bold()) }.padding(.top,32)
+                TaskChooser().environmentObject(m)
+                if m.taskGoal == "repair" { Button(m.t("開啟檢查進度…")) { m.openSession() } }
                 HStack(spacing: 14) {
                     ForEach(m.session.fonts) { f in
                         VStack(alignment: .leading,spacing: 9) {
@@ -572,13 +612,14 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
                     Picker(m.t("字元篩選"),selection: $m.scriptVariant) {
                         Text(m.t("全部（繁簡皆含）")).tag("all"); Text(m.t("繁體")).tag("traditional"); Text(m.t("簡體")).tag("simplified")
                     }.frame(maxWidth: 380).help(m.t("繁簡篩選使用系統單字轉換，共用字保留；部分一對多或古字需人工判斷，不改動字檔編碼。"))
-                    Picker(m.t("檢查方式"),selection: $m.sampleMode) { Text(m.t("完整檢查")).tag(false); Text(m.t("隨機抽樣")).tag(true) }.pickerStyle(.segmented).frame(maxWidth: 380)
+                    Picker(m.t("檢查方式"),selection: Binding(get:{m.reviewStrategy},set:{m.setStrategy($0)})) { Text(m.t("問題優先")).tag("priority"); Text(m.t("完整檢查")).tag("full"); Text(m.t("隨機抽樣")).tag("sample") }.pickerStyle(.segmented).frame(maxWidth: 450)
                     if m.sampleMode {
                         HStack { Text(m.t("抽樣字數")); TextField(m.t("數量"),text: $m.sampleCount).textFieldStyle(.roundedBorder).frame(width: 100) }
                     }
-                    if m.scope == "自訂文字" { TextField(m.t("貼上想檢查的文字；會去除重複字"),text: $m.custom).textFieldStyle(.roundedBorder) }
+                    if m.scope == "自訂文字" { CharacterListControls().environmentObject(m) }
+                    else { Button(m.t("使用自己的字表…")) { m.scope="自訂文字"; m.importCharacterList() } }
                 }.padding(18).background(.background,in: RoundedRectangle(cornerRadius: 14))
-                HStack { Button(m.t("繼續上次檢查")) { m.resume() }; Button(m.t("預掃描")) { m.openWorkbench("scan") }.disabled(m.session.fonts.isEmpty); Button(m.t("匯入核對任務…")) { m.importReviewTask() }.disabled(m.session.fonts.isEmpty); Spacer(); Button(m.t("開始檢查")) { m.start() }.buttonStyle(.borderedProminent).controlSize(.large).disabled(m.session.fonts.isEmpty) }
+                HStack(spacing:12) { Button(m.t("繼續上次檢查")) { m.resume() };Menu(m.t("更多工具")) {Button(m.t("預掃描")){m.openWorkbench("scan")}.disabled(m.session.fonts.isEmpty);Button(m.t("Glyphs 字集驗收…")){m.importGlyphLists()};Button(m.t("匯入核對任務…")){m.importReviewTask()}.disabled(m.session.fonts.isEmpty)};Spacer();Button(m.t("開始檢查")){m.start()}.buttonStyle(.borderedProminent).controlSize(.large).disabled(m.session.fonts.isEmpty) }
             }.padding(.horizontal,40).padding(.bottom,28).frame(maxWidth: 850)
             .frame(maxWidth: .infinity)
         }
@@ -586,14 +627,16 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
     var review: some View {
         VStack(spacing: 16) {
             HStack {
-                VStack(alignment: .leading,spacing: 5) { Text(m.t(m.session.scope + (m.session.reviewMode == "sample" ? " · 隨機抽樣" : ""))).font(.headline); Text(m.t("已處理 \(m.completed.formatted()) / \(m.session.domain.count.formatted()) 字（含追查與缺字）")).font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment: .leading,spacing: 5) { Text(m.t(m.session.scope) + " · " + m.t(m.session.reviewMode == "sample" ? "隨機抽樣" : m.session.reviewMode == "priority" ? "問題優先" : "完整檢查")).font(.headline); Text(m.t("已處理 \(m.completed.formatted()) / \(m.session.domain.count.formatted()) 字（含追查與缺字）")).font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Menu(m.t("工作台")) {
                     Button(m.t("預掃描")) { m.openWorkbench("scan") }; Button(m.t("對應追查")) { m.openWorkbench("mapping") }; Button(m.t("詞句檢查")) { m.openWorkbench("proof") }; Button(m.t("修復對照")) { m.openWorkbench("repair") }; Button(m.t("多人核對")) { m.openWorkbench("team") }
+                    Button(m.t("字集驗收")) { m.openWorkbench("charset") }
+                    Button(m.t("優先檢查待確認問題")) { m.prioritizePending() }
                 }
                 Button(m.t("問題字")) { m.showIssues = true }
                 Button(m.t("指定字複查")) { m.jump() }
-                Menu(m.t("匯出")) { Button(m.t("匯出目前建議與報告…")) { m.export(attempt: false) }; Button(m.t("嘗試修正並匯出…")) { m.export(attempt: true) } }
+                Menu(m.t("匯出")) { Button(m.t("匯出圖文報告與建議…")) { m.export(attempt: false) }; Button(m.t("驗收修復…")) { m.export(attempt: true) } }
             }
             ProgressView(value: Double(m.completed),total: Double(max(1,m.session.domain.count)))
             if let cp = m.session.current {
@@ -615,7 +658,7 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
                 Spacer()
                 Image(systemName: m.completed == m.session.domain.count ? "checkmark.seal" : "pause.circle").font(.system(size: 56,weight: .light)).foregroundStyle(.tint)
                 Text(m.t(m.completed == m.session.domain.count ? (m.session.reviewMode == "sample" ? "這次抽樣已判定完成" : "這個範圍已判定完成") : "已走完一輪，還有待確認的字")).font(.title2.bold())
-                HStack { if m.completed < m.session.domain.count { Button(m.t("繼續待確認字")) { m.retry() } }; Button(m.t("嘗試修正並匯出報告")) { m.export(attempt: true) }.buttonStyle(.borderedProminent) }
+                HStack { if m.completed < m.session.domain.count { Button(m.t("繼續待確認字")) { m.retry() } }; Button(m.t("驗收修復與匯出報告")) { m.export(attempt: true) }.buttonStyle(.borderedProminent) }
                 Spacer()
             }
         }.padding(24)
@@ -626,7 +669,7 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
         return VStack(alignment: .leading,spacing: 16) {
             HStack { Text(m.t("問題字")).font(.title2.bold()); Spacer(); Button(m.t("匯出目前建議")) { m.export(attempt: false) }; Button(m.t("完成")) { m.showIssues = false } }
             Picker(m.t("類型"),selection: $m.issueFilter) {
-                Text(m.t("誤植")).tag("mismatch"); Text(m.t("待確認")).tag("uncertain"); Text(m.t("缺字")).tag("missing"); Text(m.t("參考存疑")).tag("reference"); Text(m.t("答案衝突")).tag("conflict"); Text(m.t("全部")).tag("all")
+                Text(m.t("誤植")).tag("mismatch"); Text(m.t("待確認")).tag("uncertain"); Text(m.t("字形差異")).tag("variant"); Text(m.t("缺字")).tag("missing"); Text(m.t("參考存疑")).tag("reference"); Text(m.t("答案衝突")).tag("conflict"); Text(m.t("全部")).tag("all")
             }.pickerStyle(.segmented)
             if shown.isEmpty { Text(m.t("目前沒有這類問題字。")).foregroundStyle(.secondary).frame(maxWidth: .infinity,maxHeight: .infinity) }
             else {
@@ -640,13 +683,13 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
                             }
                             Spacer()
                             if issue.kind == "mismatch" { Text("→ " + issue.actual).font(.title3) }
-                            else { Text(m.t(issue.kind == "missing" ? "缺字" : issue.kind == "reference" ? "參考存疑" : issue.kind == "conflict" ? "答案衝突" : "待確認")).foregroundStyle(.secondary) }
+                            else { Text(m.t(issue.kind == "missing" ? "缺字" : issue.kind == "reference" ? "參考存疑" : issue.kind == "conflict" ? "答案衝突" : issue.kind == "variant" ? "字形差異" : "待確認")).foregroundStyle(.secondary) }
                             Image(systemName: "chevron.right").foregroundStyle(.secondary)
                         }.padding(.vertical,5).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }.listStyle(.inset)
             }
-        }.padding(24).frame(width: 650,height: 520)
+        }.padding(24).frame(width: 760,height: 520)
     }
     func referenceCard(_ cp: Int) -> some View {
         let ref = referenceGlyph(cp,family: m.reference)
@@ -673,7 +716,8 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
                 HStack { Button { m.mark(f,"correct") } label: { Label(m.t("正確"),systemImage: a?.kind == "correct" ? "checkmark.circle.fill" : "checkmark.circle") }.tint(a?.kind == "correct" ? .green : .accentColor); Spacer(); Text(m.t(a?.kind == "correct" ? "已選正確" : a?.kind == "mismatch" ? "已回報誤植" : a?.kind == "uncertain" ? "待確認" : "尚未判定")).font(.caption).foregroundStyle(.secondary) }
                 TextField(m.t("我看到的字是…"),text: Binding(get: { m.typed[f.id] ?? "" },set: { m.typed[f.id] = $0; m.drafts[f.id] = nil })).textFieldStyle(.roundedBorder)
                     .onSubmit { m.quickAdvance() }
-                HStack { Button(m.t("回報誤植")) { m.mark(f,"mismatch") }; Button(m.t("無法辨認")) { m.mark(f,"uncertain") } }.font(.subheadline)
+                HStack { Button(m.t("確定是另一個字")) { m.mark(f,"mismatch") }; Menu(m.t("其他判定")) { Button(m.t("看不清／不知道")) { m.mark(f,"uncertain") }; Button(m.t("字形不同，可能合理")) { m.mark(f,"variant") } } }.font(.subheadline)
+                if a?.kind == "variant" { Text(m.t("字形差異保留待確認，不作修復來源。")).font(.caption).foregroundStyle(.orange) }
                 if a?.kind == "mismatch" { Text("→ \(a?.actual ?? "")").font(.caption).foregroundStyle(.orange) }
             } else {
                 VStack(spacing: 12) { Image(systemName: "square.dashed").font(.system(size: 44,weight: .light)); Text(m.t("缺字／空白字形")).font(.headline) }.foregroundStyle(.secondary).frame(maxWidth: .infinity,minHeight: 280)

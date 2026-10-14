@@ -3,7 +3,12 @@ import AppKit
 import CoreText
 import UniformTypeIdentifiers
 
-struct RepairSuggestion: Codable { var character: String; var donor: String }
+struct RepairSuggestion: Codable, Identifiable {
+    var character: String; var donor: String; var fingerprint: String; var decision: String
+    var sourceID: String? = nil
+    var sourceFont: String? = nil
+    var id: String { character }
+}
 struct MappingRelationship: Codable, Identifiable {
     var codepoint: String; var chain: String; var cycle: Bool; var status: String
     var id: String { codepoint }
@@ -11,7 +16,9 @@ struct MappingRelationship: Codable, Identifiable {
 struct RepairFont: Codable, Identifiable {
     var id: String; var font: String; var output: String?; var suggestions: [RepairSuggestion]
     var relationships: [MappingRelationship]
+    var unresolved: [RepairFailure]? = nil
 }
+struct RepairFailure: Codable { var codepoint:String; var reason:String }
 struct RepairResult: Codable { var output: String; var fonts: [RepairFont] }
 
 extension Checker {
@@ -22,7 +29,7 @@ extension Checker {
         Task {
             defer { busy = false }
             do {
-                let data = try await run(["export",saveURL.path,output.path,"repair"])
+                let data = try await run(["export",saveURL.path,output.path,"preview"])
                 let result = try JSONDecoder().decode(RepairResult.self,from: data)
                 var fonts: [String: CTFont] = [:]
                 for item in result.fonts {
@@ -74,7 +81,7 @@ extension Checker {
                 }
                 for vote in task.conflicts?[key] ?? [] where !votes.contains(vote) { votes.append(vote) }
                 history[f.id,default: [:]][key] = votes
-                let decisions = votes.map(\.answer).filter { ["correct","mismatch"].contains($0.kind) }
+                let decisions = votes.map(\.answer).filter { ["correct","mismatch","variant"].contains($0.kind) }
                 let unique = decisions.reduce(into: [Answer]()) { if !$0.contains($1) { $0.append($1) } }
                 if unique.count > 1 || task.conflicts?[key] != nil {
                     conflicts[f.id,default: [:]][key] = votes
@@ -123,7 +130,7 @@ extension Checker {
         for (title,url) in [("MAKOTO LAB","https://makotolab.tw/"),("GitHub","https://github.com/lancer1234/GlyphCheck"),("Buy Me a Coffee","https://buymeacoffee.com/MakotoLab")] {
             result.append(NSAttributedString(string: title + "\n",attributes: [.link:URL(string:url)!, .font:NSFont.systemFont(ofSize: 13)]))
         }
-        result.append(NSAttributedString(string: "\nMIT License · Python · fontTools\n" + t("字檔留在本機；不自動安裝、不覆寫原檔。"),attributes: [.font:NSFont.systemFont(ofSize: 11)]))
+        result.append(NSAttributedString(string: "\nFree Use & Modification · No Resale\nPython · fontTools\n" + t("字檔留在本機；不自動安裝、不覆寫原檔。"),attributes: [.font:NSFont.systemFont(ofSize: 11)]))
         return result
     }
 }
@@ -133,12 +140,81 @@ extension Checker {
 struct ProofView: NSViewRepresentable {
     var font: CTFont; var text: String; var size: Double
     var allowFallback = false
-    func makeNSView(context: Context) -> ProofCanvas { ProofCanvas() }
-    func updateNSView(_ view: ProofCanvas,context: Context) { view.font = font; view.text = text; view.size = size; view.allowFallback = allowFallback; view.needsDisplay = true }
+    var syncGroup = ""
+    func makeNSView(context: Context) -> ProofScroll { ProofScroll() }
+    func updateNSView(_ view: ProofScroll,context: Context) { if view.canvas.text != text { view.resetTop = true; view.canvas.selection = NSRange(location:0,length:0) }; view.canvas.font = font; view.canvas.text = text; view.canvas.size = size; view.canvas.allowFallback = allowFallback; view.group = syncGroup; view.resizeProof() }
+}
+final class ProofScroll: NSScrollView {
+    let canvas = ProofCanvas(); var group = ""; var syncing = false
+    var resetTop = true
+    var observers:[NSObjectProtocol] = []
+    override init(frame:NSRect) {
+        super.init(frame:frame); hasVerticalScroller = true; drawsBackground = false; documentView = canvas
+        contentView.postsBoundsChangedNotifications = true
+        canvas.onSelection = { [weak self] range in guard let self else { return }; self.broadcast(range:range) }
+        observers.append(NotificationCenter.default.addObserver(forName:NSView.boundsDidChangeNotification,object:contentView,queue:.main) { [weak self] _ in self?.broadcast() })
+        observers.append(NotificationCenter.default.addObserver(forName:Notification.Name("GlyphCheck.proofSync"),object:nil,queue:.main) { [weak self] note in
+            guard let self, !self.group.isEmpty, note.object as AnyObject? !== self, note.userInfo?["group"] as? String == self.group else { return }
+            if let range = note.userInfo?["range"] as? NSRange { self.canvas.selection = range; self.canvas.needsDisplay = true }
+            if let cp = note.userInfo?["anchor"] as? Int {
+                self.syncing = true
+                let y = self.canvas.scrollY(for:cp)
+                self.contentView.scroll(to:NSPoint(x:0,y:min(max(0,y),max(0,self.canvas.bounds.height-self.contentView.bounds.height))))
+                self.reflectScrolledClipView(self.contentView); self.syncing = false
+            }
+        })
+    }
+    required init?(coder:NSCoder) { fatalError() }
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+    override func layout() { super.layout(); resizeProof() }
+    func resizeProof() {
+        let width=max(50,contentView.bounds.width)
+        let height=max(contentView.bounds.height,canvas.requiredHeight(width:width))
+        if canvas.frame.size != NSSize(width:width,height:height) { canvas.setFrameSize(NSSize(width:width,height:height)) }
+        if resetTop && width > 50 { syncing=true; contentView.scroll(to:NSPoint(x:0,y:max(0,height-contentView.bounds.height))); reflectScrolledClipView(contentView); syncing=false; resetTop=false }
+        canvas.needsDisplay = true
+    }
+    func broadcast(range:NSRange?=nil) {
+        guard !syncing, !group.isEmpty else { return }
+        var info:[String:Any] = ["group":group]
+        if let range { info["range"] = range } else { info["anchor"] = canvas.index(at:NSPoint(x:14,y:contentView.bounds.maxY-18)) }
+        NotificationCenter.default.post(name:Notification.Name("GlyphCheck.proofSync"),object:self,userInfo:info)
+    }
 }
 final class ProofCanvas: NSView {
     var font: CTFont?; var text = ""; var size = 36.0
     var allowFallback = false
+    var selection = NSRange(location:0,length:0); var anchor = 0
+    var onSelection:((NSRange)->Void)?
+    func attributed() -> NSAttributedString {
+        guard let base=font else { return NSAttributedString(string:"") }
+        return NSAttributedString(string:text,attributes:[NSAttributedString.Key(kCTFontAttributeName as String):CTFontCreateCopyWithAttributes(base,size,nil,nil)])
+    }
+    func requiredHeight(width:CGFloat) -> CGFloat {
+        let setter=CTFramesetterCreateWithAttributedString(attributed())
+        return ceil(CTFramesetterSuggestFrameSizeWithConstraints(setter,CFRange(location:0,length:0),nil,CGSize(width:max(1,width-28),height:.greatestFiniteMagnitude),nil).height)+40
+    }
+    func lines() -> ([CTLine],[CGPoint]) {
+        let setter=CTFramesetterCreateWithAttributedString(attributed())
+        let frame=CTFramesetterCreateFrame(setter,CFRange(location:0,length:0),CGPath(rect:bounds.insetBy(dx:14,dy:14),transform:nil),nil)
+        let lines=CTFrameGetLines(frame) as! [CTLine]; var origins=Array(repeating:CGPoint.zero,count:lines.count)
+        CTFrameGetLineOrigins(frame,CFRange(location:0,length:0),&origins); return (lines,origins)
+    }
+    func index(at point:NSPoint) -> Int {
+        let (lines,origins)=lines(); guard let row=origins.indices.min(by:{abs(origins[$0].y+14-point.y)<abs(origins[$1].y+14-point.y)}) else { return 0 }
+        let n=CTLineGetStringIndexForPosition(lines[row],CGPoint(x:point.x-14,y:0)); return max(0,min((text as NSString).length,n == kCFNotFound ? CTLineGetStringRange(lines[row]).location : n))
+    }
+    func scrollY(for index:Int) -> CGFloat {
+        let (lines,origins)=lines()
+        for (i,line) in lines.enumerated() { let r=CTLineGetStringRange(line); if index < r.location+r.length { return origins[i].y+size+14-(enclosingScrollView?.contentView.bounds.height ?? 0) } }
+        return 0
+    }
+    override func mouseDown(with event:NSEvent) { window?.makeFirstResponder(self); anchor=index(at:convert(event.locationInWindow,from:nil)); selection=NSRange(location:anchor,length:0); onSelection?(selection); needsDisplay=true }
+    override func mouseDragged(with event:NSEvent) { autoscroll(with:event); let end=index(at:convert(event.locationInWindow,from:nil)); selection=NSRange(location:min(anchor,end),length:abs(end-anchor)); onSelection?(selection); needsDisplay=true }
+    override var acceptsFirstResponder:Bool { true }
+    override func keyDown(with event:NSEvent) {
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "c", selection.length > 0 { NSPasteboard.general.clearContents(); NSPasteboard.general.setString((text as NSString).substring(with:selection),forType:.string) } else { super.keyDown(with:event) }
+    }
     override var isFlipped: Bool { false }
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext, let base = font else { return }
@@ -153,6 +229,12 @@ final class ProofCanvas: NSView {
         CTFrameGetLineOrigins(frame,CFRange(location: 0,length: 0),&origins)
         ctx.saveGState(); ctx.textMatrix = .identity
         for (index,line) in lines.enumerated() {
+            let r=CTLineGetStringRange(line), start=max(r.location,selection.location), end=min(r.location+r.length,selection.location+selection.length)
+            if end>start {
+                let x0=CTLineGetOffsetForStringIndex(line,start,nil),x1=CTLineGetOffsetForStringIndex(line,end,nil)
+                ctx.setFillColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35).cgColor)
+                ctx.fill(CGRect(x:min(x0,x1)+14,y:origins[index].y+14-size*0.25,width:max(2,abs(x1-x0)),height:size*1.2))
+            }
             for run in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let count = CTRunGetGlyphCount(run)
                 var positions = Array(repeating: CGPoint.zero,count: count); var glyphs = Array(repeating: CGGlyph(0),count: count)
@@ -186,21 +268,27 @@ final class ProofCanvas: NSView {
 
 @MainActor struct WorkbenchView: View {
     @EnvironmentObject var m: Checker
+    let sections=[("scan","預掃描","magnifyingglass"),("charset","字集驗收","checklist"),("mapping","對應追查","arrow.triangle.branch"),("proof","詞句檢查","text.alignleft"),("repair","修復對照","wrench.and.screwdriver"),("team","多人核對","person.2")]
     var body: some View {
-        VStack(alignment: .leading,spacing: 16) {
-            HStack { Text(m.t("檢查工作台")).font(.title2.bold()); Spacer(); if m.busy { ProgressView().controlSize(.small) }; Button(m.t("完成")) { m.showWorkbench = false }.disabled(m.busy) }
-            Picker("",selection: $m.workTab) {
-                Text(m.t("預掃描")).tag("scan"); Text(m.t("對應追查")).tag("mapping"); Text(m.t("詞句檢查")).tag("proof"); Text(m.t("修復對照")).tag("repair"); Text(m.t("多人核對")).tag("team")
-            }.pickerStyle(.segmented).disabled(m.busy)
+        HStack(spacing:0) {
+          VStack(alignment:.leading,spacing:16) {
+            Text("GlyphCheck").font(.headline).padding(.horizontal,16).padding(.top,24)
+            List(selection:$m.workTab) { ForEach(sections,id:\.0) { section in Label(m.t(section.1),systemImage:section.2).tag(section.0).padding(.vertical,5) } }.listStyle(.sidebar).disabled(m.busy)
+          }.frame(width:174).background(Color(nsColor:.controlBackgroundColor))
+          Divider()
+          VStack(alignment:.leading,spacing:20) {
+            HStack { Text(m.t(sections.first(where:{$0.0==m.workTab})?.1 ?? "檢查工作台")).font(.title2.bold());Spacer();if m.busy {ProgressView().controlSize(.small)};Button(m.t("完成")){m.showWorkbench=false}.disabled(m.busy) }
             Group {
                 switch m.workTab {
                 case "scan": scan
+                case "charset": GlyphAuditView().environmentObject(m)
                 case "mapping": mapping
                 case "proof", "repair": proof
                 default: team
                 }
             }.frame(maxWidth: .infinity,maxHeight: .infinity,alignment: .topLeading)
-        }.padding(24).frame(width: 880,height: 660)
+          }.padding(24)
+        }.frame(width:1040,height:720)
     }
     var scan: some View {
         VStack(alignment: .leading,spacing: 12) {
@@ -233,7 +321,7 @@ final class ProofCanvas: NSView {
             if let result = m.previewResult {
                 List { ForEach(result.fonts) { font in
                     Section(font.font) { ForEach(font.relationships) { relation in
-                        HStack { Text(relation.chain).font(.title3); Spacer(); Text(m.t(relation.status == "confirmed_donor" ? "可修正" : "待確認")); if relation.cycle { Image(systemName:"arrow.triangle.2.circlepath") } }
+                        HStack { Text(relation.chain).font(.title3); Spacer(); Text(m.t(relation.status == "confirmed_donor" ? "已確認來源，待驗收" : "待確認")); if relation.cycle { Image(systemName:"arrow.triangle.2.circlepath") } }
                     } }
                 } }
             } else { Text(m.t("按更新查看目前的交換、連鎖與修復來源。")).foregroundStyle(.secondary) }
@@ -256,23 +344,28 @@ final class ProofCanvas: NSView {
                 ForEach(m.session.fonts) { f in
                     VStack(alignment:.leading,spacing:8) {
                         Text(f.name).font(.headline)
+                        if m.workTab == "repair" { CrossRepairPicker(font:f).environmentObject(m) }
                         HStack(alignment:.top) {
-                            if let font = m.loadedFonts[f.id] { proofCard(m.t("原版"),font:font) }
+                            if let font = m.loadedFonts[f.id] { proofCard(m.t("原版"),font:font,group:f.id) }
                             if m.workTab == "repair" {
-                                if let font = m.repairedFonts[f.id] { proofCard(m.t("修正版"),font:font) }
-                                else { Text(m.t("尚無修復預覽或沒有安全修正來源。")).frame(maxWidth:.infinity,minHeight:180).foregroundStyle(.secondary) }
-                            } else { proofCard(m.t("系統參考"),font:CTFontCreateWithName(m.reference as CFString,36,nil),allowFallback:true) }
+                                if let font = m.repairedFonts[f.id] { proofCard(m.t("未驗收候選預覽"),font:font,group:f.id) }
+                                else { Text(m.t("尚無候選。可選擇跨字檔補字／替換來源，或核對原檔內對應。")).frame(maxWidth:.infinity,minHeight:180).foregroundStyle(.secondary) }
+                            } else { proofCard(m.t("系統參考"),font:CTFontCreateWithName(m.reference as CFString,36,nil),allowFallback:true,group:f.id) }
                         }
                         if m.workTab == "repair", let item = m.previewResult?.fonts.first(where: { $0.id == f.id }) {
-                            Text(item.suggestions.map { "\($0.character) ← \($0.donor)" }.joined(separator:"   ")).font(.caption).textSelection(.enabled)
+                            ForEach(Array((item.unresolved ?? []).enumerated()),id:\.offset) { _,failure in Text("\(failure.codepoint) · \(failure.reason)").font(.caption).foregroundStyle(.orange) }
+                            ForEach(item.suggestions) { suggestion in RepairAcceptanceRow(font:f,suggestion:suggestion).environmentObject(m) }
                         }
                     }.padding(.bottom,14)
                 }
             }
+            if m.workTab == "repair" {
+                HStack { Text(m.t("逐項查看原對應與候選來源；只匯出已驗收項目。")).font(.caption).foregroundStyle(.secondary); Spacer(); Button(m.t("匯出已驗收修復…")) { m.export(attempt:true) }.disabled(!m.hasAcceptedRepairs || m.busy) }
+            }
         }
     }
-    func proofCard(_ title:String,font:CTFont,allowFallback:Bool=false) -> some View {
-        VStack(alignment:.leading) { Text(title).font(.caption).foregroundStyle(.secondary); ProofView(font:font,text:m.proofText,size:m.proofSize,allowFallback:allowFallback).frame(height:240).background(.background,in:RoundedRectangle(cornerRadius:8)) }.frame(maxWidth:.infinity)
+    func proofCard(_ title:String,font:CTFont,allowFallback:Bool=false,group:String="") -> some View {
+        VStack(alignment:.leading) { Text(title).font(.caption).foregroundStyle(.secondary); ProofView(font:font,text:m.proofText,size:m.proofSize,allowFallback:allowFallback,syncGroup:group).frame(height:300).background(.background,in:RoundedRectangle(cornerRadius:8)) }.frame(maxWidth:.infinity)
     }
     var team: some View {
         VStack(alignment:.leading,spacing:16) {

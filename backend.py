@@ -6,6 +6,9 @@ import struct
 import sys
 import unicodedata
 import uuid
+from reports import write_html
+from cross_repair import validate_target, source_font, fingerprint as cross_fingerprint, append_outline
+from glyph_audit import parse_lists, audit
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -112,7 +115,7 @@ def set_cmap(font, cm):
     # Keep variation-selector mappings; cmap repair must not discard them.
     font['cmap'].tables=tables+[t for t in font['cmap'].tables if t.format==14]
 
-def inspect(path, dest):
+def inspect(path, dest, postscript=None):
     path=Path(path); dest=Path(dest); dest.mkdir(parents=True,exist_ok=True)
     raw=path.read_bytes()
     count=struct.unpack_from('>I',raw,8)[0] if raw[:4]==b'ttcf' else 1
@@ -120,6 +123,7 @@ def inspect(path, dest):
     fonts=[]
     for face in range(count):
         f=TTFont(path,fontNumber=face,lazy=False)
+        if postscript and f['name'].getDebugName(6)!=postscript: continue
         cm,notes=mapping(f,raw,face)
         if not cm: raise ValueError('找不到可復原的 Unicode／Big5 字碼表。')
         glyphset=f.getGlyphSet(); visible={}; bounds_cache={}
@@ -136,6 +140,7 @@ def inspect(path, dest):
         fonts.append(dict(id=fid,name=title,filename=path.name,source=str(original),preview=str(preview),face=face,
             sha256=hashlib.sha256(raw).hexdigest(),glyphs={str(cp):f.getGlyphID(g) for cp,g in cm.items()},
             visible=visible,notes=notes,upem=f['head'].unitsPerEm,scan=prescan(f,cm,visible)))
+    if postscript and not fonts: raise ValueError('找不到所選本機字體的字面，請改用字檔選擇來源。')
     return {'fonts':fonts}
 
 def repair_plan(cm, visible, answers, missing_targets=()):
@@ -165,10 +170,14 @@ def repair_plan(cm, visible, answers, missing_targets=()):
                 reason='沒有經人工確認的原字形來源' if not by_glyph else '多個相異來源衝突，需要再次確認',candidates=options))
     return replacements,unresolved
 
-def export(session_path,out,attempt):
+def approval_fingerprint(meta,target,donor,cm,answers):
+    evidence=dict(sha256=meta['sha256'],face=meta['face'],target=target,donor=donor,glyph=cm[donor],answers=answers)
+    return hashlib.sha256(json.dumps(evidence,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+def export(session_path,out,attempt,preview=False):
     s=json.loads(Path(session_path).read_text()); out=Path(out); out.mkdir(parents=True,exist_ok=True)
     domain=s.get('domain',[]); population=s.get('population') or domain
-    sampled=s.get('sampled') or []; mode=s.get('reviewMode') or 'full'; result=[]
+    sampled=s.get('sampled') or []; mode=s.get('reviewMode') or 'full'; result=[]; drawings=[]; source_cache={}
     for meta in s['fonts']:
         if hashlib.sha256(Path(meta['source']).read_bytes()).hexdigest() != meta['sha256']:
             raise ValueError('保存的原字檔已變動，為避免錯用字形，已停止輸出。請重新匯入。')
@@ -179,28 +188,66 @@ def export(session_path,out,attempt):
         # Disputed labels must not become donors, even when a local answer exists.
         doubts={str(cp) for cp in s.get('referenceDoubts',[])}
         safe_answers={cp:a for cp,a in answers.items() if cp not in conflicts and cp not in doubts}
-        absent=[cp for cp in domain if not meta['visible'].get(str(cp),False)]
+        absent=[cp for cp in domain if not meta['visible'].get(str(cp),False) and str(cp) not in conflicts and str(cp) not in doubts]
         plan,unresolved=repair_plan(cm,meta['visible'],safe_answers,absent)
+        external={}; external_errors=[]
+        sources={item['id']:item for item in s.get('repairSources') or []}
+        for key,choice in (s.get('externalRepairs') or {}).get(meta['id'],{}).items():
+            target=int(key); donor=int(choice['codepoint'])
+            try:
+                if not 0<=target<=0x10FFFF or 0xD800<=target<=0xDFFF: raise ValueError('Invalid Unicode target')
+                validate_target(f)
+                source=sources[choice['sourceID']]
+                if source['id'] not in source_cache:
+                    sf,raw=source_font(source);scm,_=mapping(sf,raw,source['face']);source_cache[source['id']]=(sf,scm)
+                sf,scm=source_cache[source['id']];name=scm.get(donor)
+                if not name or not source['visible'].get(str(donor)): raise ValueError('來源缺字或沒有輪廓')
+                external[target]=(source,sf,donor,name,cross_fingerprint(meta,source,target,donor,name))
+                plan[target]=donor
+                unresolved=[r for r in unresolved if r.get('codepoint')!=f'U+{target:04X}']
+            except Exception as exc:
+                plan.pop(target,None)
+                external_errors.append(dict(expected=chr(target),codepoint=f'U+{target:04X}',reason=str(exc)))
+        unresolved.extend(external_errors)
         unresolved.extend(dict(expected=chr(int(cp)),codepoint=f'U+{int(cp):04X}',reason='Reviewers disagree; manual reconciliation required',candidates=values) for cp,values in conflicts.items())
         repaired=[]; missing=[]; pending=[]; issues=[]
-        suggestions=[dict(character=chr(target),codepoint=f'U+{target:04X}',donor=chr(donor),donorCodepoint=f'U+{donor:04X}',glyph=cm[donor],status='有已確認來源，可重編碼') for target,donor in sorted(plan.items())]
+        suggestions=[]; accepted={}; approvals=s.get('repairApprovals',{}).get(meta['id'],{})
+        for target,donor in sorted(plan.items()):
+            fingerprint=external[target][4] if target in external else approval_fingerprint(meta,target,donor,cm,safe_answers)
+            approval=approvals.get(str(target),{})
+            decision=approval.get('decision','pending') if approval.get('fingerprint')==fingerprint else 'pending'
+            if decision=='accepted': accepted[target]=donor
+            suggestion=dict(character=chr(target),codepoint=f'U+{target:04X}',donor=chr(donor),donorCodepoint=f'U+{donor:04X}',glyph=external[target][3] if target in external else cm[donor],fingerprint=fingerprint,decision=decision,status='已驗收' if decision=='accepted' else '已排除' if decision=='excluded' else '待驗收',reviewer=approval.get('reviewer','') if decision!='pending' else '',reviewedAt=approval.get('reviewedAt','') if decision!='pending' else '')
+            if target in external:
+                source=external[target][0]
+                suggestion.update(sourceID=source['id'],sourceFont=source['name'],sourceSHA256=source['sha256'],sourceFace=source['face'],method='跨字檔輪廓補字／替換')
+            suggestions.append(suggestion)
+            if attempt and not preview and decision!='accepted':
+                unresolved.append(dict(expected=chr(target),codepoint=f'U+{target:04X}',donor=chr(donor),reason='修復候選尚未驗收或已排除',status=decision))
         unsampled=[dict(character=chr(cp),codepoint=f'U+{cp:04X}',status='未抽樣，不視為正確') for cp in sorted(set(population)-set(domain))] if mode=='sample' else []
         for cp in domain:
             a=answers.get(str(cp)); char=chr(cp)
             if not meta['visible'].get(str(cp),False) and unicodedata.category(char) not in ('Zs','Zl','Zp','Cc','Cf','Cs'):
                 missing.append(dict(character=char,codepoint=f'U+{cp:04X}',reason='沒有字碼' if cp not in cm else '空白或 .notdef 字形'))
-            elif str(cp) in conflicts or str(cp) in doubts or not a or a['kind'] in ('uncertain','skipped'):
-                pending.append(dict(character=char,codepoint=f'U+{cp:04X}',status=a['kind'] if a else 'not_reviewed'))
+            elif str(cp) in conflicts or str(cp) in doubts or not a or a['kind'] in ('uncertain','skipped','variant'):
+                pending.append(dict(character=char,codepoint=f'U+{cp:04X}',status='conflict' if str(cp) in conflicts else 'reference_doubt' if str(cp) in doubts else a['kind'] if a else 'not_reviewed'))
             if a: issues.append(dict(character=char,codepoint=f'U+{cp:04X}',status=a['kind'],observed=a.get('actual','')))
         output=None
-        if attempt and plan:
+        applied=plan if preview else accepted
+        if attempt and applied:
             new=dict(cm)
-            for target,donor in plan.items():
-                new[target]=cm[donor]
-                repaired.append(dict(character=chr(target),codepoint=f'U+{target:04X}',donor=chr(donor),glyph=cm[donor]))
+            for target,donor in applied.items():
+                if target in external:
+                    source,sf,_,name,_=external[target]
+                    new_name='gc_'+uuid.uuid4().hex
+                    new[target]=append_outline(f,sf,name,new_name)
+                else: new[target]=cm[donor]
+                change=dict(character=chr(target),codepoint=f'U+{target:04X}',donor=chr(donor),glyph=new[target])
+                if target in external: change.update(sourceFont=source['name'],sourceSHA256=source['sha256'],sourceFace=source['face'],method='跨字檔輪廓補字／替換')
+                repaired.append(change)
             set_cmap(f,new); f.flavor=None
             suffix=datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+meta['id'][:6]
-            family=meta['name']+' 檢查修正版 '+suffix
+            family=meta['name']+(' 未驗收預覽 ' if preview else ' 檢查修正版 ')+suffix
             identity_ids=(1,3,4,6,16,21)
             f['name'].names=[n for n in f['name'].names if n.nameID not in identity_ids]
             for nid in (1,4,16,21):
@@ -216,7 +263,7 @@ def export(session_path,out,attempt):
             # Signature and layout caches cannot describe the modified cmap.
             for tag in ('DSIG',):
                 if tag in f: del f[tag]
-            output=meta['id'][:6]+'-repaired'+('.ttf' if 'glyf' in f else '.otf')
+            output=meta['id'][:6]+('-preview' if preview else '-repaired')+('.ttf' if 'glyf' in f else '.otf')
             f.save(out/output)
             check=TTFont(out/output)
             assert check.getBestCmap()==new, '修正輸出字碼驗證失敗'
@@ -224,39 +271,43 @@ def export(session_path,out,attempt):
             for target,donor in plan.items():
                 unresolved.append(dict(expected=chr(target),codepoint=f'U+{target:04X}',seen=answers.get(str(target),{}).get('actual',''),donor=chr(donor),reason='已找到來源，但尚未執行修正'))
         info=dict(id=meta['id'],font=meta['name'],filename=meta['filename'],sha256=meta['sha256'],face=meta['face'],
-            scope=s.get('scope',''),scopeCount=len(domain),missing=missing,repaired=repaired,unresolved=unresolved,
+            scope=s.get('scope',''),scopeCount=len(domain),missing=missing,repaired=[] if preview else repaired,previewChanges=repaired if preview else [],unresolved=unresolved,
             pending=pending,answers=issues,output=output,notes=notes,suggestions=suggestions,unsampled=unsampled,
-            reviewMode=mode,populationCount=len(population),requestedSampleSize=s.get('requestedSampleSize'),sampledCount=len(sampled),
+            reviewMode=mode,queueMode=s.get('queueMode') or mode,populationCount=len(population),requestedSampleSize=s.get('requestedSampleSize'),sampledCount=len(sampled),fontVersion=f['name'].getDebugName(5) or f"OpenType {f['head'].fontRevision:g}",isPreview=preview,
             extraReviewCount=len(set(domain)-set(sampled)) if mode=='sample' else 0,
-            scriptVariant=s.get('scriptVariant') or 'all',isPartial=bool(pending or unsampled),
-            limitations=['僅依使用者人工標註修正 cmap；不自動補畫字形。','未檢查 GSUB/GPOS 連字、變體選擇符、垂直字形或複雜排版。','缺字僅針對本次選定／抽樣及追加字元，不代表整個 Unicode。','繁簡篩選採系統單字轉換，古字與一對多轉換可能需人工判斷；不會改寫原字碼。'])
+            scriptVariant=s.get('scriptVariant') or 'all',isReviewPartial=bool(pending or unsampled),isRepairPartial=bool(preview or unresolved or (plan and not attempt)),isPartial=bool(pending or unsampled or unresolved or preview),
+            limitations=['原檔對應修復與跨字檔輪廓補字分開記錄；跨字檔僅輸出已验收字元，縮放至目標 UPEM，採來源字寬，不調整風格。','跨字檔目標僅支援靜態非彩色 TrueType；保留既有排版表，不把来源 GSUB/GPOS 移入，舊字形連字／變體仍需另外檢查。','缺字僅針對本次選定／抽樣及追加字元，不代表整個 Unicode。','繁簡篩選採系統單字轉換，古字與一對多轉換可能需人工判斷；不會改寫原字碼。'])
         for item in missing:
-            item['status']='已由確認來源恢復' if attempt and ord(item['character']) in plan else '待補字'
+            item['status']='已驗收並恢復' if attempt and not preview and ord(item['character']) in applied else '待補字'
         info['referenceDoubts']=[{'character':chr(cp),'codepoint':f'U+{cp:04X}'} for cp in s.get('referenceDoubts',[])]
         info['relationships']=relationships(answers,plan,conflicts)
         info['reviewConflicts']=conflicts
         info['reviewVotes']=s.get('reviewVotes',{}).get(meta['id'],{})
         info['preflight']=meta.get('scan',[])
         info['populationMissing']=[dict(character=chr(cp),codepoint=f'U+{cp:04X}',reason='Absent or blank in selected population') for cp in population if not meta['visible'].get(str(cp),False) and unicodedata.category(chr(cp)) not in ('Zs','Zl','Zp','Cc','Cf','Cs')]
+        drawings.append((TTFont(meta['source'],fontNumber=meta['face'],lazy=False),cm,meta,info))
         result.append(info)
         prefix=meta['id'][:6]
-        for name,rows in [('缺字',missing),('已修正',repaired),('未修正',unresolved),('待確認',pending),('人工判定',issues),('參考存疑',info['referenceDoubts']),('修正建議',suggestions),('未抽樣',unsampled),('對應追查',info['relationships']),('預掃描',info['preflight']),('範圍缺字',info['populationMissing'])]:
+        for name,rows in [('缺字',missing),('已修正',info['repaired']),('預覽變動',info['previewChanges']),('未修正',unresolved),('待確認',pending),('人工判定',issues),('參考存疑',info['referenceDoubts']),('修正建議',suggestions),('未抽樣',unsampled),('對應追查',info['relationships']),('預掃描',info['preflight']),('範圍缺字',info['populationMissing'])]:
             with (out/(prefix+'-'+name+'.csv')).open('w',encoding='utf-8-sig',newline='') as fp:
                 fields=list(dict.fromkeys(k for row in rows for k in row)) or ['character','codepoint','status']
                 writer=csv.DictWriter(fp,fieldnames=fields); writer.writeheader(); writer.writerows(rows)
     (out/'檢查報告.json').write_text(json.dumps({'version':1,'fonts':result},ensure_ascii=False,indent=2))
     (out/'檢查進度.glyphcheck').write_text(json.dumps(s,ensure_ascii=False,indent=2))
-    lines=['字形檢查報告','',f'檢查範圍：{s.get("scope","")}（本次 {len(domain)} 字）',f'檢查方式：{"隨機抽樣" if mode=="sample" else "完整檢查／可中途匯出"}',f'選定範圍總數：{len(population)}；原始抽樣：{len(sampled)}；額外追查／複查：{len(set(domain)-set(sampled)) if mode=="sample" else 0}','未抽樣與尚未確認的字，不視為正確。','原檔未改動。這份報告不是全字庫正確保證。','']
+    lines=['字形檢查報告','',f'檢查範圍：{s.get("scope","")}（本次 {len(domain)} 字）',f'選字方式：{mode}；出題順序：{s.get("queueMode") or mode}',f'選定範圍總數：{len(population)}；原始抽樣：{len(sampled)}；額外追查／複查：{len(set(domain)-set(sampled)) if mode=="sample" else 0}','未抽樣與尚未確認的字，不視為正確。','原檔未改動。這份報告不是全字庫正確保證。','未驗收預覽不列為已修復；正式輸出只包含逐項接受且證據仍相符的候選。','']
     for r in result:
         lines += [r['font'],f'缺字 {len(r["missing"])}／已修正 {len(r["repaired"])}／未修正 {len(r["unresolved"])}／待確認 {len(r["pending"])}',f'修正建議 {len(r["suggestions"])}／未抽樣 {len(r["unsampled"])}',f'輸出字檔：{r["output"] or "無（僅匯出報告，或沒有安全修正來源）"}','']
-    lines += ['修正只重編碼已人工確認的來源，不猜補字。部分修正可在檢查未完成時輸出，但必須連同待確認清單使用。','多音字拼音為系統單字轉寫，不保證所有讀音。','進度檔引用本機保存的原檔；跨電腦續接請一併複製整個工作階段資料夾。','字體的原有授權仍適用，請先確認有權修改及分享。']
+    lines += ['原檔修復重編 cmap；跨字檔補字追加已驗收來源輪廓，不猜補字或自動畫字。來源依每項建議／已修正清單記錄。部分修正必須連同待確認清單使用。','跨字檔採來源字寬，縮放至目標 UPEM；不移入來源 GSUB/GPOS，不調整字形風格，既有連字／變體仍需人工檢查。','多音字拼音為系統單字轉寫，不保證所有讀音。','進度檔引用本機保存的原檔與補字來源；跨電腦續接請一併複製整個工作階段資料夾。','字體的原有授權仍適用，請先確認有權修改及分享。']
     (out/'報告摘要.txt').write_text('\n'.join(lines))
+    write_html(s,drawings,out)
     return {'output':str(out),'fonts':result}
 
 if __name__=='__main__':
     try:
-        if sys.argv[1]=='inspect': value=inspect(sys.argv[2],sys.argv[3])
-        elif sys.argv[1]=='export': value=export(sys.argv[2],sys.argv[3],sys.argv[4]=='repair')
+        if sys.argv[1]=='inspect': value=inspect(sys.argv[2],sys.argv[3],sys.argv[4] if len(sys.argv)>4 else None)
+        elif sys.argv[1]=='export': value=export(sys.argv[2],sys.argv[3],sys.argv[4] in ('repair','preview'),sys.argv[4]=='preview')
+        elif sys.argv[1]=='glyphlist': value=parse_lists(sys.argv[2:])
+        elif sys.argv[1]=='audit': value=audit(sys.argv[2],sys.argv[3] if len(sys.argv)>3 else None)
         else: raise ValueError('未知操作')
         print(json.dumps(value,ensure_ascii=False))
     except Exception as exc:

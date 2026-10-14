@@ -7,11 +7,31 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 [![MAKOTO LAB](assets/button-studio.svg)](https://makotolab.tw/)
 [![Buy Me a Coffee](assets/button-coffee.svg)](https://buymeacoffee.com/MakotoLab)
 
-**Latest: 1.2.0** — English UI & Latin scopes, preflight, mapping traces, text proofs, repair comparisons and portable team review.
+**Latest: 1.3.0** — Glyphs glyph-name list audits, synchronized article comparison, accepted cross-font repairs and visual reports.
 
-[![Release notes](assets/button-notes.svg)](RELEASE-1.2.0.md)
+### 1.3 新流程
+
+1. **選任務：**「檢查這份字檔」「檢查這段文字」「整理與修復問題」。文字任務保留文章內容，只核對其中的不同非空白字元；修復入口可接續既有進度。
+2. **匯入／保存字集：** 支援 UTF-8／UTF-16 文字檔、每行一個 `U+XXXX` 或 `0xXXXX`，以及 `.glyphset` JSON。字集可命名保存在本機，或匯出供下次使用；不內建或下載第三方字集。文字任務把 `U+0041` 等字串當實際文章內容，字表模式才解析逐行字碼。
+3. **選出題方式：** 完整檢查、隨機抽樣、問題優先。問題優先按答案衝突／參考存疑、已回報字的追查目標、預掃描提示及文章字元分層；每層隨機。切換待確認字為優先順序，不更動原抽樣樣本；`reviewMode` 與 `queueMode` 分別記錄選字及排序。
+4. **區分判定：** 正確、確定是另一個字、看不清／不知道、字形不同但可能合理。字形差異仍待確認，不當作修復 donor；系統參考不是唯一正確字形。含新判定的多人任務請使用 1.3 或以上版本匯入。
+5. **匯出圖文報告：** `圖文核對報告.html` 可獨立開啟／分享，包含原字檔輪廓圖片、Unicode 名稱、人工看到的字、文章片段、字檔版本與雜湊、候選修復與未確認清單。沒有腳本、外部圖片或整份字檔，也不嵌入本機路徑；分享前仍需檢查檔名和文字片段中的私人資料。一般用途可用瀏覽器列印。
+6. **修復先驗收：**「驗收修復」產生明確命名為未驗收的隔離預覽，原檔不變。逐項查看原對應與候選來源後，接受、排除或重設，再匯出已驗收項目。沒有驗收不輸出正式修復字檔。候選 fingerprint 綁定原檔／字面、目標、來源輪廓名稱及人工判定；判定證據變更後，需重新驗收。驗收者與時間列入報告。
+7. **跨字檔補字／替換：** 修復對照展開來源區，選外部字檔或已安裝字體（集合可選字面），預覽來源後輸入目標字並加入候選。逐字驗收才寫入獨立修正版；改換來源後重新驗收。追加輪廓並縮放至目標 UPEM，保留來源字寬；不改其他字形、不自動調整風格。來源雜湊、字面與方法列入 HTML／JSON／CSV。僅支援靜態非彩色 TrueType **目標**；靜態 TrueType／CFF 輪廓可作來源。變動、彩色、CFF 目標明確回報不支援。
+8. **長文章對照：** 左右預覽可完整捲動，按相同文字位置同步而不是總高度百分比；拖曳任一側文字，同步反白另一側的相同文字範圍。字體差異會造成換行不同；不強制改字寬。選取可用 ⌘C 複製。
+9. **Glyphs 字集驗收：** 匯入每行一個字形名稱的 `.txt` 清單，可一次選多個分組。不需要安裝 Glyphs。依原檔同名字形或可靠單字碼查找；保留 `.vert` 等後綴及無 Unicode 名稱，無法對應時不猜測。實際存在先列待人工核對，確認後列已找到／已確認；另外列缺少與無法判定。可預覽、註記、保存與匯出 HTML／CSV／JSON。這不是 `.glyphs`／`.glyphspackage` 設計檔編輯器；不分析 GSUB 的語義關聯，不內建或重散布第三方字集。字檔若沒有保留字形名稱，部分無字碼項目會無法判定。
+
+1.0–1.2 進度仍可開啟，但舊的候選不視為已驗收，必須依新流程確認。原有 CSV／JSON 與缺字回報保留；預覽變動和正式修復分開計數。
+
+[![Release notes](assets/button-notes.svg)](RELEASE-1.3.0.md)
 
 ## Screenshots / 介面截圖
+
+### 字集驗收 / Glyph-name list audit
+
+<img src="assets/screenshots/charset-audit.png" alt="Glyph-name list audit with native sidebar, coverage summary, glyph preview and review notes" width="900">
+
+此截圖使用程式產生的示範字檔（刻意以三角形代表 A），展示問題回報，不代表 jf7000 清單或任何第三方字體有錯誤。
 
 **雙字檔逐字核對 / Side-by-side glyph review**
 
@@ -32,14 +52,13 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 
 <img src="assets/screenshots/team-review.png" alt="Portable review task export and merge interface using demo data" width="760">
 
-### 設定與關於 / Settings and About
+### 設定 / Settings
 
 <img src="assets/screenshots/settings.png" alt="Native settings with Traditional Chinese, Simplified Chinese and English UI options" width="360">
-<img src="assets/screenshots/about.png" alt="GlyphCheck About panel showing version, MAKOTO LAB ownership and project links" width="280">
 
 </details>
 
-截圖來自獨立示範環境，使用 [LXGW WenKai](https://github.com/lxgw/LxgwWenKai) 系列開源字型；不包含私人字檔或核對紀錄，App 下載包也不附帶這些字型。Screenshots use an isolated demo with open-source fonts, not a claim that those fonts contain mapping errors.
+截圖來自獨立示範環境，使用程式產生的測試字檔或 [LXGW WenKai](https://github.com/lxgw/LxgwWenKai) 系列開源字型；不包含私人字檔或核對紀錄，App 下載包也不附帶這些字型。Screenshots use isolated demo data, not a claim that third-party fonts contain mapping errors.
 
 ## 為什麼做這個工具？
 
@@ -57,8 +76,6 @@ GlyphCheck 讓你逐字看、逐字判定；遇到誤植會接著追查你看到
 - 工作台呈現錯誤對應的交換／連鎖、修復來源，以及原版／修正版詞句對照。
 - 詞句檢查使用 CoreText 排版，可自訂文章、字級和中英範例；缺字／系統備援被標為橘框，不會悄悄替換。
 - 多人核對任務可分段匯出、匯入並合併答案；依原檔 SHA-256 與字面配對，不攜帶字檔。答案衝突須重新判定才可用於修復。
-- 「關於 GlyphCheck」包含 MAKOTO LAB 歸屬、版本、網站、GitHub 與贊助連結。
-- 藍色字形放大鏡 App 圖示，與主畫面 MAKOTO LAB 版權標示。
 - 「問題字」清單可點選誤植、缺字、待確認或參考存疑字，直接複查。
 - **直接按 Enter** 確認正確並進入下一題。輸入一個字後按 Enter，回報看到的字並追查該字。
 - 每個字檔各自記錄判定，支援無法辨認、上一題、指定字複查。
@@ -146,7 +163,7 @@ Enter 會保留已標記的「誤植」或「無法辨認」，不會把它們�
 
 - **預掃描：** 匯入時比對輪廓與字名。開始前即可查看，可疑字在完整／抽樣的已選字元中優先出題。相同輪廓可能是合法共用設計，不自動修正。每份字檔顯示前 200 個缺字、500 個可疑項目，完整資料在報告；舊進度沒有掃描資料時不會推測。
 - **對應追查：** 按「更新追查與修復建議」查看交換與連鎖。這會在本機工作階段產生隔離的預覽字檔，不改動或安裝原字檔。
-- **詞句檢查：** 貼入文字，選範例與字級，比對原版與系統參考。橘框表示缺字／未採用備援，橘色省略號表示預覽高度不足，可縮小字級或分段測試。這是人工 proof，不是自動 kerning／ligature 檢測。
+- **詞句檢查：** 貼入文字，選範例與字級，比對原版與系統參考。橘框表示缺字／未採用備援。1.3 支援完整文章捲動及左右同步捲動／反白。這是人工 proof，不是自動 kerning／ligature 檢測。
 - **修復對照：** 按「產生最新修復預覽」，並排查看原版／修正版。底下列出目標字與 donor 字碼。未確認來源、參考存疑字或核對衝突不作 donor。
 - **多人核對：** 填核對者名稱、起始序號（1 起算）與字數，匯出 `.glyphreview`。序號依這個工作階段的字碼排序，不依隨機出題順序。任務包含選定字碼與該段既有答案，不含字檔。
 
@@ -164,10 +181,10 @@ Open **Settings (⌘,)** to choose English. Select Latin, numbers & punctuation,
 - 拼音是系統單字轉寫，不能保證多音字、方言或罕見字完整；非漢字可能沒有拼音。
 - 缺字以選定範圍為準；空白與控制字元不出題，未檢查字保留為待確認。
 - 抽樣的缺字報告只涵蓋原始樣本與額外追查／複查；未抽樣的字另外列出，不會被宣告為完整缺字調查。
-- 自動修正僅重編 Unicode 字碼表（cmap），不畫缺字、不猜補字，不修 GSUB/GPOS、連字、垂直字形、變體選擇符或複雜排版。
+- 原檔內修復重編 cmap；1.3 跨字檔修復另外追加已驗收來源輪廓。兩者都不自動繪製缺字，也不把來源 GSUB/GPOS 移入。既有連字、垂直替換與變體仍可能引用舊字形，需另行檢查。
 - 適合一般輪廓字體；彩色／點陣字體、特殊舊編碼及部分異常檔案可能不支援。變動字體使用預設字面，不提供軸值檢查。
 - 可復原部分異常 format-4 字碼表，並轉換 Windows Big5，但不保證原始字義正確。
-- 原字體授權仍適用。請先取得修改與分享權利；本工具的 MIT 授權不涵蓋匯入字檔。
+- 原字體授權仍適用。請先取得修改與分享權利；本程式授權不涵蓋匯入字檔。
 
 ## 從原始碼建置
 
@@ -192,7 +209,7 @@ PYTHON_RUNTIME=/path/to/python APP_OUTPUT=/path/to/字形檢查器.app zsh build
 python3 -m venv .venv
 .venv/bin/pip install fonttools==4.66.1
 .venv/bin/python test_backend.py
-swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift Localization.swift test_engine.swift \
+swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift ReviewFlow.swift CrossRepair.swift GlyphAudit.swift Localization.swift test_engine.swift \
   -o test-engine -framework SwiftUI -framework AppKit -framework CoreText
 ./test-engine
 ```
@@ -221,4 +238,6 @@ Reviews are saved locally. Export missing/repaired/unresolved/pending reports an
 
 ## License
 
-MIT License. Dependencies retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). User fonts retain their original licenses and are not distributed here.
+**GlyphCheck Free Use and Modification License** — 可免費使用、修改與分享，包括商業工作；原版及修改版皆不得販售。分享時保留 MAKOTO LAB 署名與授權、標明修改，改作版仍須遵守禁止販售條款。原始碼公開，但不屬於開源授權。[完整條款](LICENSE)。
+
+Free to use, modify and share, including professional work. No resale of original or modified versions without written permission. Outputs and user fonts retain their own rights. Earlier 1.0–1.2 copies retain MIT permissions; deleting old releases does not revoke them. Third-party dependencies retain their licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

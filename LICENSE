@@ -1,21 +1,58 @@
-MIT License
+GlyphCheck Free Use and Modification License 1.0
+Copyright (c) 2026 MAKOTO LAB. All rights reserved except as granted below.
 
-Copyright (c) 2026 MAKOTO LAB
+Scope
+This license applies to MAKOTO LAB's original GlyphCheck code, application,
+documentation, and project artwork distributed with version 1.3.0 and later
+under this license (the Software). Third-party components are excluded and
+retain their own licenses. See THIRD_PARTY_NOTICES.md.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Free use and modification
+You may download, install, run, copy, inspect, build, modify, and adapt the
+Software free of charge for personal, educational, professional, and
+commercial work. Commercial font design and client services performed USING
+GlyphCheck are permitted. Charging for your own font-design, consulting, or
+support work is not, by itself, a sale of GlyphCheck.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Free distribution
+You may distribute original or modified copies without charging for the
+Software. Retain this license and copyright notices, credit MAKOTO LAB for
+the original project, and clearly identify modified versions and their
+publisher. Distribute the GlyphCheck portion of modified versions under
+these same terms, including the no-resale restriction. You need not publish
+private modifications, and this license does not require public source
+disclosure merely because you use the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+No resale
+Without prior written permission from MAKOTO LAB, you may not sell copies
+of the Software, original or modified, charge a license fee for them, or
+relicense the GlyphCheck material to permit such sales. Renaming or modifying
+the Software does not remove this restriction. Do not remove copyright or
+license notices or present a modified version as an official MAKOTO LAB
+release. All rights not expressly granted are reserved. Rights that cannot
+lawfully be restricted are not excluded by these terms.
+
+User files and outputs
+This license does not claim ownership of your fonts, review data, repaired
+fonts, reports, or other output. It does not prohibit modifying, selling, or
+commercially using those outputs. Input fonts retain their own licenses;
+you remain responsible for obtaining permission to modify or share them.
+
+Earlier releases and third-party permissions
+Versions 1.0.0 through 1.2.0 were published under MIT. This license does not
+withdraw or replace permissions already granted for those MIT-licensed copies
+or their MIT-licensed material. LICENSE-MIT-LEGACY.txt records the earlier
+license; it does not grant MIT rights to newly authored material published
+only under this license. Separately licensed third-party code is unaffected.
+Public GitHub viewing and forking permitted by GitHub's terms remain allowed.
+
+No warranty
+The Software is provided as is, without warranties to the extent permitted
+by law. You are responsible for verifying review and repair results and
+keeping backups. To the extent permitted by law, MAKOTO LAB is not liable
+for loss or damage arising from use of the Software.
+
+Permission requests: danny950811@gmail.com
+Official project: https://github.com/lancer1234/GlyphCheck
+
+This is a source-available, free-use license, not an open-source license.

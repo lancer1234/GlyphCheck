@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="148" height="40" viewBox="0 0 148 40" role="img" aria-label="Release notes">
-  <title>Release notes</title>
-  <rect x="0.5" y="0.5" width="147" height="39" rx="9" fill="#eff3f8" stroke="#000000" stroke-opacity=".08"/>
-  <text x="74" y="25" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif" font-size="14" font-weight="600" fill="#1f2937">Release notes</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="218" height="32" viewBox="0 0 218 32" role="img" aria-label="RELEASE NOTES"><title>RELEASE NOTES</title><path fill="#555" d="M0 0h112v32H0z"/><path fill="#e9ecef" d="M112 0h106v32H112z"/><path d="M3 3h10v14H3zM6 7h4M6 10h4M6 13h4" transform="translate(10 6)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><g font-family="Arial,Helvetica,sans-serif" font-size="11" font-weight="700" letter-spacing="1"><text x="34" y="20" fill="#fff">RELEASE</text><text x="165" y="20" text-anchor="middle" fill="#24292f">NOTES</text></g></svg>

@@ -14,5 +14,5 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install fonttools==4.66.1
       - run: python test_backend.py
-      - run: swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift Localization.swift test_engine.swift -o test-engine -framework SwiftUI -framework AppKit -framework CoreText
+      - run: swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift ReviewFlow.swift CrossRepair.swift GlyphAudit.swift Localization.swift test_engine.swift -o test-engine -framework SwiftUI -framework AppKit -framework CoreText
       - run: ./test-engine
