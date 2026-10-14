@@ -7,7 +7,7 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 [![MAKOTO LAB](assets/button-studio.svg)](https://makotolab.tw/)
 [![Buy Me a Coffee](assets/button-coffee.svg)](https://buymeacoffee.com/MakotoLab)
 
-**Latest: 1.3.0** — Glyphs glyph-name list audits, synchronized article comparison, accepted cross-font repairs and visual reports.
+**Latest: 1.3.1** — Glyphs glyph-name list audits, synchronized article comparison, accepted cross-font repairs and visual reports.
 
 ### 1.3 新流程
 
@@ -23,7 +23,7 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 
 1.0–1.2 進度仍可開啟，但舊的候選不視為已驗收，必須依新流程確認。原有 CSV／JSON 與缺字回報保留；預覽變動和正式修復分開計數。
 
-[![Release notes](assets/button-notes.svg)](RELEASE-1.3.0.md)
+[![Release notes](assets/button-notes.svg)](RELEASE-1.3.1.md)
 
 ## Screenshots / 介面截圖
 

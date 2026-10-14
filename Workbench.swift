@@ -206,7 +206,7 @@ final class ProofCanvas: NSView {
     }
     func scrollY(for index:Int) -> CGFloat {
         let (lines,origins)=lines()
-        for (i,line) in lines.enumerated() { let r=CTLineGetStringRange(line); if index < r.location+r.length { return origins[i].y+size+14-(enclosingScrollView?.contentView.bounds.height ?? 0) } }
+        for (i,line) in lines.enumerated() { let r=CTLineGetStringRange(line); if index < r.location+r.length { return origins[i].y+CGFloat(size)+14-(enclosingScrollView?.contentView.bounds.height ?? 0) } }
         return 0
     }
     override func mouseDown(with event:NSEvent) { window?.makeFirstResponder(self); anchor=index(at:convert(event.locationInWindow,from:nil)); selection=NSRange(location:anchor,length:0); onSelection?(selection); needsDisplay=true }
@@ -233,7 +233,7 @@ final class ProofCanvas: NSView {
             if end>start {
                 let x0=CTLineGetOffsetForStringIndex(line,start,nil),x1=CTLineGetOffsetForStringIndex(line,end,nil)
                 ctx.setFillColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35).cgColor)
-                ctx.fill(CGRect(x:min(x0,x1)+14,y:origins[index].y+14-size*0.25,width:max(2,abs(x1-x0)),height:size*1.2))
+                ctx.fill(CGRect(x:min(x0,x1)+14,y:origins[index].y+14-CGFloat(size)*0.25,width:max(2,abs(x1-x0)),height:CGFloat(size)*1.2))
             }
             for run in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let count = CTRunGetGlyphCount(run)
