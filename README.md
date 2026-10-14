@@ -226,6 +226,13 @@ Import one or two outline fonts, review randomly presented characters against a 
 
 Reviews are saved locally. Export missing/repaired/unresolved/pending reports and optionally generate a separately named repaired font using human-confirmed donors only. Conflicts and unknown donors are not guessed. GlyphCheck does not draw missing glyphs or repair shaping tables.
 
+## 致謝 / Acknowledgments
+
+- 感謝 [justfont](https://justfont.com/) 國榕提供字體製作流程與工具定位的回饋，以及 [jf7000](https://justfont.com/jf7000) 字集，協助我們驗證字形名稱清單的支援。
+- 感謝 [LXGW／霞鶩文楷](https://github.com/lxgw/LxgwWenKai) 與 [繁體版本](https://github.com/lxgw/LxgwWenKaiTC) 的作者及貢獻者，提供示範與測試所使用的開源字體；也感謝其上游 [FONTWORKS Klee One](https://github.com/fontworks-fonts/Klee)。字體保留各自的 OFL 授權，不隨本程式散布。
+
+以上為回饋與開源資源致謝，不表示官方合作、推薦或背書。
+
 ## MAKOTO LAB 與支持專案
 
 [MAKOTO LAB](https://makotolab.tw/) 是我的獨立軟硬體實驗室，把好奇心與實際需求做成工具和產品。

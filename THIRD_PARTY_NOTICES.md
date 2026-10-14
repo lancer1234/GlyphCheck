@@ -7,3 +7,5 @@ GlyphCheck 1.3.0 and later original project material uses the GlyphCheck Free Us
 - **SwiftUI, AppKit, CoreText and SF Symbols** are Apple system technologies. No Apple fonts are redistributed with GlyphCheck.
 
 No user-supplied font files are included in this repository or release. Repairing a font does not change its license or grant permission to redistribute it. Obtain authorization before modifying or sharing third-party fonts.
+
+Demo/test acknowledgments: LXGW and contributors to [LXGW WenKai](https://github.com/lxgw/LxgwWenKai) and [LXGW WenKai TC](https://github.com/lxgw/LxgwWenKaiTC), with upstream [FONTWORKS Klee One](https://github.com/fontworks-fonts/Klee), licensed under SIL OFL 1.1. These fonts are not bundled. Thanks to justfont 國榕 for workflow feedback and the public jf7000 list for local compatibility testing; the list is not bundled. These credits do not imply endorsement.

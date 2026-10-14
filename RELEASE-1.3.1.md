@@ -13,3 +13,5 @@ Glyphs support is for glyph-name text lists, including named variants—not `.gl
 Free to use, modify and share, including commercial work. Original and modified versions may not be sold without written permission. Preserve attribution/license, identify modifications and retain no-resale terms. Source available, not open source. Prior MIT grants and third-party licenses are unaffected. See LICENSE.
 
 [Usage](README.md) · [Download](https://github.com/lancer1234/GlyphCheck/releases/latest) · [Feedback](https://github.com/lancer1234/GlyphCheck/issues)
+
+Thanks to justfont 國榕 for workflow feedback, and to LXGW, the WenKai/TC contributors and FONTWORKS Klee One authors for open font resources used in demos and tests. No endorsement is implied; fonts and character lists are not bundled.
