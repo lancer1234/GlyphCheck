@@ -7,7 +7,7 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 [![MAKOTO LAB](assets/button-studio.svg)](https://makotolab.tw/)
 [![Buy Me a Coffee](assets/button-coffee.svg)](https://buymeacoffee.com/MakotoLab)
 
-**Latest: 1.4.0** — Fixed legacy-font list audits and added on-device OCR screening with human confirmation.
+**Latest: 1.5.0** — Separate matching, suspected mismatches and inconclusive OCR; corroborated screening and GitHub update checks.
 
 ### 1.3 新流程
 
@@ -23,7 +23,7 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 
 1.0–1.2 進度仍可開啟，但舊的候選不視為已驗收，必須依新流程確認。原有 CSV／JSON 與缺字回報保留；預覽變動和正式修復分開計數。
 
-[![Release notes](assets/button-notes.svg)](RELEASE-1.4.0.md)
+[![Release notes](assets/button-notes.svg)](RELEASE-1.5.0.md)
 
 ## Screenshots / 介面截圖
 
@@ -64,7 +64,9 @@ A minimal native macOS tool for **human review of font glyphs and incorrect char
 
 「字檔有這個字碼」不代表「它畫的就是這個字」。老字檔可能缺字、留白，也可能把完整字形對到錯的字碼。自動輪廓檢查或 OCR 不能取代人工確認。
 
-1.4 可在「字集驗收」匯入 Glyphs 名稱清單後按「自動初篩」，以本機 Apple Vision 辨識實際字形。預設每次 200 個，0 表示所有尚未初篩項目；可停止、續掃或重置結果。「自動可疑」列出辨識成另一字、不一致、低信心及讀不出的項目，逐字人工確認。無字碼變體不作 OCR 判定。辨識相符不等於正確，信心值不是錯字機率；書法、異體、罕用字及拉丁單字可能誤認或漏判。報告保留候選與理由，原字檔不自動改動。
+在「字集驗收」匯入 Glyphs 名稱清單後按「自動初篩」，以本機 Apple Vision 辨識實際字形。預設每次 200 個，0 表示所有尚未初篩項目；可停止、續掃或重置結果。1.5分為「辨識相符」「疑似誤植」「辨識無法判定」：相符不再因低信心列為可疑；不一致與讀不出另列無法判定。疑似誤植須三種正向渲染一致，並經至少兩種系統參考字體的輪廓比較佐證；方向混淆不作錯字結論。這是保守的篩選，不是字義或筆畫辨識模型，仍可能漏判、誤判。無字碼變體不作 OCR 判定；辨識相符不等於人工確認。舊版機器結果保留但停用，需要重掃；人工紀錄保留。原字檔不自動改動。
+
+「GlyphCheck → 檢查更新…」查詢 GitHub 正式 Release；設定中可選擇啟動時檢查（預設關閉）。只讀取公開版本資訊，不上傳字檔或檢查進度，不自動下載或安裝；有新版時可自行開啟官方下載頁。無網路或查詢受限會明確回報，不會誤稱已是最新版。
 
 GlyphCheck 讓你逐字看、逐字判定；遇到誤植會接著追查你看到的字，最後產出可以交給 AI 或字體修復者使用的清單。
 
@@ -199,7 +201,7 @@ zsh build.sh
 open dist/字形檢查器.app
 ```
 
-腳本下載固定版本的官方 `python-build-standalone`，驗證 SHA-256，並從 PyPI 安裝固定版本的 fontTools。只有建置過程需要下載，完成的 App 離線運作。也可以自行提供可信的獨立 Python 3.12 runtime：
+腳本下載固定版本的官方 `python-build-standalone`，驗證 SHA-256，並從 PyPI 安裝固定版本的 fontTools。字形檢查、修復與報告均可離線使用；只有選擇檢查更新時會連線 GitHub。也可以自行提供可信的獨立 Python 3.12 runtime：
 
 ```sh
 PYTHON_RUNTIME=/path/to/python APP_OUTPUT=/path/to/字形檢查器.app zsh build.sh
@@ -211,7 +213,7 @@ PYTHON_RUNTIME=/path/to/python APP_OUTPUT=/path/to/字形檢查器.app zsh build
 python3 -m venv .venv
 .venv/bin/pip install fonttools==4.66.1
 .venv/bin/python test_backend.py
-swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift ReviewFlow.swift CrossRepair.swift GlyphAudit.swift AutoScreen.swift Localization.swift test_engine.swift \
+swiftc -swift-version 5 -D TESTING -parse-as-library GlyphCheck.swift Workbench.swift ReviewFlow.swift CrossRepair.swift GlyphAudit.swift AutoScreen.swift UpdateChecker.swift Localization.swift test_engine.swift \
   -o test-engine -framework SwiftUI -framework AppKit -framework CoreText -framework Vision
 ./test-engine
 ```

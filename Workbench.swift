@@ -403,6 +403,7 @@ final class ProofCanvas: NSView {
 
 @MainActor struct SettingsView: View {
     @EnvironmentObject var m: Checker
+    @AppStorage("checkUpdatesOnLaunch") var autoUpdates=false
     var body: some View {
         Form {
             Picker(m.t("介面語言"),selection:Binding(get:{m.uiLanguage},set:{m.setLanguage($0)})) {
@@ -410,6 +411,13 @@ final class ProofCanvas: NSView {
             }
             Text(m.t("介面語言不會改變檢查範圍或字檔編碼。")).font(.caption).foregroundStyle(.secondary)
             Button(m.t("關於 GlyphCheck")) { m.about() }
-        }.formStyle(.grouped).padding(12).frame(width:420,height:200)
+            Section(m.t("更新")) {
+                Text(m.t("目前版本")+"："+m.currentAppVersion).font(.caption).foregroundStyle(.secondary)
+                Toggle(m.t("啟動時檢查正式版本"),isOn:$autoUpdates)
+                HStack {Button(m.t("檢查更新…")){m.checkForUpdates()}.disabled(m.checkingUpdates);if m.checkingUpdates {ProgressView().controlSize(.small)};if let url=m.availableUpdateURL {Link(m.t("開啟下載頁"),destination:url)}}
+                if !m.updateStatus.isEmpty {Text(m.updateStatus).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)}
+                Text(m.t("只查詢 GitHub 版本資訊；不傳送字檔、不自動下載或安裝。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+            }
+        }.formStyle(.grouped).padding(12).frame(width:480,height:390)
     }
 }

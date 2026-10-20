@@ -196,6 +196,10 @@ func reviewable(_ cp: Int) -> Bool {
     @Published var autoProgress=0
     @Published var autoTotal=0
     @Published var autoLimit="200"
+    @Published var checkingUpdates=false
+    @Published var updateStatus=""
+    @Published var availableUpdateURL:URL? = nil
+    var didCheckUpdatesOnLaunch=false
     var autoTask:Task<Void,Never>? = nil
     var autoRunID=UUID()
     var donorFonts: [String: CTFont] = [:]
@@ -766,10 +770,10 @@ struct EnterHandler: NSViewRepresentable {
 @MainActor @main struct GlyphCheckApp: App {
     @StateObject var checker = Checker(persistRecent: !ProcessInfo.processInfo.arguments.contains("--qa"))
     var body: some Scene {
-        WindowGroup("字形檢查器") { ContentView().environmentObject(checker) }
+        WindowGroup("字形檢查器") { ContentView().environmentObject(checker).task {checker.checkUpdatesOnLaunch()} }
             .defaultSize(width: 1080,height: 760)
             .commands { CommandGroup(replacing: .newItem) { Button(checker.t("新的檢查")) { checker.newSession() }.keyboardShortcut("n"); Button(checker.t("匯入字檔…")) { checker.importPanel() }.keyboardShortcut("o"); Button(checker.t("保存進度")) { checker.persistDrafts(); checker.save() }.keyboardShortcut("s") } }
-            .commands { CommandGroup(replacing: .appInfo) { Button(checker.t("關於 GlyphCheck")) { checker.about() } } }
+            .commands { CommandGroup(replacing: .appInfo) { Button(checker.t("關於 GlyphCheck")) { checker.about() };Button(checker.t("檢查更新…")){checker.checkForUpdates()}.disabled(checker.checkingUpdates) } }
         Settings { SettingsView().environmentObject(checker) }
     }
 }

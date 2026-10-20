@@ -77,7 +77,7 @@ extension Checker {
                 Text((m.session.glyphLists ?? []).map {"\($0.name) · \($0.entries.count)"}.joined(separator:"　")).font(.caption).foregroundStyle(.secondary)
                 Text(m.t("字形存在不代表字義正確；命名變體不會自動換成基本字。無可靠對應的項目保留為無法判定。")).font(.caption).foregroundStyle(.secondary)
             }
-            Picker(m.t("顯示"),selection:$m.glyphAuditFilter) {Text(m.t("全部")).tag("all");Text(m.t("自動可疑")).tag("auto");Text(m.t("已找到／已確認")).tag("found");Text(m.t("缺少")).tag("missing");Text(m.t("無法判定")).tag("unresolved");Text(m.t("待人工核對")).tag("pending")}.pickerStyle(.segmented)
+            Picker(m.t("顯示"),selection:$m.glyphAuditFilter) {Text(m.t("全部")).tag("all");Text(m.t("疑似誤植")).tag("auto");Text(m.t("辨識相符")).tag("ocrAgree");Text(m.t("辨識無法判定")).tag("ocrUnknown");Text(m.t("已找到／已確認")).tag("found");Text(m.t("缺少")).tag("missing");Text(m.t("無法判定")).tag("unresolved");Text(m.t("待人工核對")).tag("pending")}.pickerStyle(.menu).frame(maxWidth:320,alignment:.leading)
             if let audit=m.glyphAudit {
                 let active=audit.fonts.contains(where:{$0.id==fontSelection}) ? fontSelection : audit.fonts.first?.id ?? ""
                 Picker(m.t("字檔"),selection:Binding(get:{active},set:{fontSelection=$0;m.selectedAuditRow=""})) {ForEach(audit.fonts){Text($0.font).tag($0.id)}}.disabled(m.autoRunning)
@@ -91,11 +91,12 @@ extension Checker {
                         else {Button(m.t("自動初篩")){m.startAutoScreen(font.id)}.disabled(m.busy);Menu(m.t("初篩工具")){Button(m.t("重設初篩結果")){m.session.autoFindings?[font.id]=nil;m.save()}}}
                     }
                     Text(autoSummary(font)).font(.caption).foregroundStyle(.secondary)
-                    Text(m.t("OCR 不一致、低信心與讀不出均需人工確認；未掃描與辨識相符不代表正確。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+                    Text(m.t("低信心與讀不出另外歸類，不代表誤植；辨識相符也不是人工確認。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+                    if font.rows.contains(where:{row in guard let old=m.session.autoFindings?[font.id]?[row.id] else{return false};return old.engineVersion != GlyphOCR.engineVersion}) {Text(m.t("舊版辨識結果已停用；按自動初篩重新檢查，人工紀錄保留。")).font(.caption).foregroundStyle(.secondary)}
                     HStack(alignment:.top,spacing:16) {
                         List(selection:$m.selectedAuditRow) {
                             ForEach(visibleRows(font)) { row in
-                                VStack(alignment:.leading,spacing:4) {Text(row.name).font(.body.monospaced());Text("\(row.list) · \(row.codepoint) · \(label(row.status))").font(.caption).foregroundStyle(.secondary);if let finding=m.autoFinding(font.id,row),finding.kind != "agree" {Text(autoLabel(finding.kind)+" · "+finding.observed).font(.caption).foregroundStyle(.orange)}}.tag(font.id+"|"+row.id)
+                                VStack(alignment:.leading,spacing:4) {Text(row.name).font(.body.monospaced());Text("\(row.list) · \(row.codepoint) · \(label(row.status))").font(.caption).foregroundStyle(.secondary);if let finding=m.autoFinding(font.id,row) {Text(autoLabel(finding.kind)+" · "+finding.observed).font(.caption).foregroundStyle(finding.kind=="mismatch" ? Color.orange : Color.secondary)}}.tag(font.id+"|"+row.id)
                             }
                         }.listStyle(.inset).frame(width:280).background(.background,in:RoundedRectangle(cornerRadius:10))
                         if let row=font.rows.first(where:{font.id+"|"+$0.id==m.selectedAuditRow}) { detail(font,row).frame(maxWidth:.infinity) }
@@ -107,7 +108,9 @@ extension Checker {
     }
     func visibleRows(_ font:GlyphAuditFont)->[GlyphAuditRow] {
         let rows=font.rows.filter {row in
-            if m.glyphAuditFilter=="auto" {return m.autoFinding(font.id,row).map{$0.kind != "agree"} ?? false}
+            if m.glyphAuditFilter=="auto" {return m.autoFinding(font.id,row)?.kind=="mismatch"}
+            if m.glyphAuditFilter=="ocrAgree" {return m.autoFinding(font.id,row)?.kind=="agree"}
+            if m.glyphAuditFilter=="ocrUnknown" {return m.autoFinding(font.id,row).map{["uncertain","unreadable"].contains($0.kind)} ?? false}
             return m.glyphAuditFilter=="all" || row.status==m.glyphAuditFilter
         }
         return m.glyphAuditFilter=="auto" ? rows.sorted {a,b in priority(font.id,a)>priority(font.id,b)} : rows
@@ -116,9 +119,9 @@ extension Checker {
     func autoSummary(_ font:GlyphAuditFont)->String {
         let findings=font.rows.compactMap{m.autoFinding(font.id,$0)}
         let eligible=font.rows.filter{$0.present && $0.character.unicodeScalars.count==1 && $0.character.unicodeScalars.first?.properties.isWhitespace != true}.count
-        return m.t("已初篩")+" \(findings.count)/\(eligible) · "+m.t("自動可疑")+" \(findings.filter{$0.kind != "agree"}.count)"
+        return m.t("已初篩")+" \(findings.count)/\(eligible) · "+m.t("辨識相符")+" \(findings.filter{$0.kind=="agree"}.count) · "+m.t("疑似誤植")+" \(findings.filter{$0.kind=="mismatch"}.count) · "+m.t("辨識無法判定")+" \(findings.filter{["uncertain","unreadable"].contains($0.kind)}.count)"
     }
-    func autoLabel(_ kind:String)->String {m.t(["mismatch":"疑似誤植","uncertain":"辨識不穩定","unreadable":"無法辨識","agree":"辨識相符，未人工確認"][kind] ?? kind)}
+    func autoLabel(_ kind:String)->String {m.t(["mismatch":"疑似誤植","uncertain":"辨識無法判定","unreadable":"辨識無法判定","agree":"辨識相符，未人工確認"][kind] ?? kind)}
     func label(_ status:String)->String {m.t(["found":"已找到／已確認","missing":"缺少","unresolved":"無法判定","pending":"待人工核對"][status] ?? status)}
     func summary(_ f:GlyphAuditFont)->String { ["found","missing","unresolved","pending"].map { status in "\(label(status)) \(f.rows.filter{$0.status==status}.count)"}.joined(separator:" · ") }
     func detail(_ font:GlyphAuditFont,_ row:GlyphAuditRow)->some View {
@@ -129,7 +132,7 @@ extension Checker {
                 if let cp=row.character.unicodeScalars.first {VStack(spacing:8) {Text(m.t("系統參考")).font(.caption).foregroundStyle(.secondary);Text(row.character).font(.system(size:64)).frame(height:100);Text(m.t(pinyin(Int(cp.value)))).font(.caption).lineLimit(3)}.frame(maxWidth:.infinity) }
             }.padding(16).background(Color(nsColor:.controlBackgroundColor),in:RoundedRectangle(cornerRadius:12))
             Text(row.reason).font(.callout).foregroundStyle(.secondary)
-            if let finding=m.autoFinding(font.id,row) {VStack(alignment:.leading,spacing:6) {Text(autoLabel(finding.kind)).font(.headline);Text(m.t("辨識結果")+"："+finding.observed);Text(String(format:m.t("OCR 信心值 %.2f（不是錯誤機率）"),finding.confidence)).font(.caption);Text(finding.reason).font(.caption).foregroundStyle(.secondary)}.padding(12).background(Color.orange.opacity(0.08),in:RoundedRectangle(cornerRadius:10))}
+            if let finding=m.autoFinding(font.id,row) {VStack(alignment:.leading,spacing:6) {Text(autoLabel(finding.kind)).font(.headline);Text(m.t("辨識結果")+"："+finding.observed);Text(String(format:m.t("OCR 信心值 %.2f（不是錯誤機率）"),finding.confidence)).font(.caption);Text(m.t(finding.reason)).font(.caption).foregroundStyle(.secondary)}.padding(12).background((finding.kind=="mismatch" ? Color.orange : Color.secondary).opacity(0.08),in:RoundedRectangle(cornerRadius:10))}
             Text(label(row.status)).font(.headline)
             HStack {Button(m.t("確認正確")){m.judgeGlyph(font.id,row,"correct")}.disabled(!row.present);Button(m.t("標記問題")){m.judgeGlyph(font.id,row,"issue")}.disabled(!row.present);Button(m.t("重設")){m.judgeGlyph(font.id,row,"")} }
             TextField(m.t("核對註記"),text:Binding(get:{row.note},set:{m.judgeGlyph(font.id,row,row.decision,note:$0)})).textFieldStyle(.roundedBorder)

@@ -61,7 +61,9 @@ def audit(session_path,out=None):
                 status='unresolved' if read_error else ('found' if vote.get('decision')=='correct' else 'pending') if visible else ('missing' if cp is not None or named else 'unresolved')
                 reason=read_error or (('原字檔含同名字形' if named else '依明確 Unicode／標準 AGL 對應') if glyph else ('已知字碼但字檔缺少' if cp is not None else '字檔未保留可用的同名項目，且無可靠單字碼對應；不猜測變體'))
                 screening=(session.get('autoFindings') or {}).get(meta['id'],{}).get(key,{})
-                screening=screening if screening.get('fingerprint')==fp else {}
+                # Historical OCR findings remain in the session, but must not be exported
+                # as results of the new screening policy. Human votes are independent.
+                screening=screening if screening.get('fingerprint')==fp and screening.get('engineVersion')==2 else {}
                 rows.append(dict(id=key,list=group['name'],name=name,codepoint=f'U+{cp:04X}' if cp is not None else '',character=chr(cp) if cp is not None else '',glyph=glyph or '',glyphID=f.getGlyphID(glyph) if glyph else None,present=visible,status=status,reason=reason,fingerprint=fp,decision=vote.get('decision',''),note=vote.get('note',''),autoKind=screening.get('kind','not_scanned'),autoObserved=screening.get('observed',''),autoConfidence=screening.get('confidence',0),autoReason=screening.get('reason','')))
         result.append(dict(id=meta['id'],font=meta['name'],sha256=meta['sha256'],rows=rows))
         figures.append((f,gs))

@@ -1,6 +1,21 @@
 import Foundation
 
 private let englishStrings: [String:String] = [
+    "辨識相符":"OCR agrees", "辨識無法判定":"OCR inconclusive",
+    "低信心與讀不出另外歸類，不代表誤植；辨識相符也不是人工確認。":"Low-confidence and unreadable results are separate, not mismatches. OCR agreement is not human confirmation.",
+    "舊版辨識結果已停用；按自動初篩重新檢查，人工紀錄保留。":"Old OCR results are inactive. Run screening again; human reviews are preserved.",
+    "兩種正向渲染皆辨識相符；即使 OCR 信心偏低，也不列為疑似誤植。這不是人工確認。":"Both upright renderings match. Low OCR confidence alone does not flag a mismatch. This is not human confirmation.",
+    "辨識資料不足，歸入無法判定；不是字檔錯誤證據。":"Insufficient recognition evidence: inconclusive, not evidence of a font error.",
+    "三種正向渲染穩定辨識為另一字，且至少兩種系統參考字體的輪廓比較支持該候選；仍需人工確認，可能是異體或誤判。":"Three upright renderings consistently suggest another character, corroborated by silhouettes from at least two system reference families. Human review is still required; variants and false positives remain possible.",
+    "辨識不一致、信心不足，或缺乏輪廓佐證；歸入無法判定，不列為疑似誤植。":"Inconsistent/low-confidence recognition or insufficient shape support: inconclusive, not a suspected mismatch.",
+    "更新":"Updates", "檢查更新":"Check for Updates", "檢查更新…":"Check for Updates…", "目前版本":"Current version",
+    "啟動時檢查正式版本":"Check for stable releases at launch", "正在檢查更新…":"Checking for updates…",
+    "有新版本可下載":"A newer release is available", "目前沒有較新的正式版本。":"No newer stable release is available.",
+    "GitHub 尚無可用的正式版本。":"GitHub has no published stable release yet.", "開啟下載頁":"Open download page", "稍後":"Later",
+    "只查詢 GitHub 版本資訊；不傳送字檔、不自動下載或安裝。":"Only checks GitHub release metadata. Fonts are never sent; no automatic download or installation.",
+    "GitHub 暫時限制查詢次數，請稍後再試。":"GitHub temporarily rate-limited this request. Try again later.",
+    "更新資料格式或來源不正確，未開啟任何下載。":"Invalid update data or source. No download was opened.",
+    "無法連線檢查更新，請檢查網路後重試。":"Unable to check for updates. Check your connection and retry.",
     "初篩工具":"Scan tools", "重設初篩結果":"Reset screening results", "已初篩":"Screened",
     "自動可疑":"Auto flags", "初篩字數":"Scan limit", "0＝全部；只掃尚未處理的單字碼項目":"0 = all; unscanned Unicode glyphs only", "停止初篩":"Stop scan", "自動初篩":"Auto-screen", "OCR 不一致、低信心與讀不出均需人工確認；未掃描與辨識相符不代表正確。":"OCR mismatches, low confidence and unreadable results need review. Unscanned or agreeing results are not proof of correctness.", "疑似誤植":"Possible mismatch", "辨識不穩定":"Unstable recognition", "無法辨識":"Unreadable", "辨識相符，未人工確認":"OCR agrees; not human-verified", "辨識結果":"Recognized", "OCR 信心值 %.2f（不是錯誤機率）":"OCR confidence %.2f (not an error probability)",
     "字集與判定說明":"Lists & review guidance", "字檔":"Font", "更多工具":"More tools",

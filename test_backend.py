@@ -66,6 +66,9 @@ class Tests(unittest.TestCase):
             self.assertTrue(rows[0]['present']);self.assertEqual(rows[0]['glyphID'],meta['glyphs']['32'])
             self.assertEqual(rows[-1]['status'],'unresolved')
             session['autoFindings']={meta['id']:{rows[1]['id']:dict(fingerprint=rows[1]['fingerprint'],kind='mismatch',observed='B',confidence=.9,reason='OCR candidate')}}
+            sp.write_text(json.dumps(session));old=glyph_audit.audit(sp)['fonts'][0]['rows']
+            self.assertEqual(old[1]['autoKind'],'not_scanned')
+            session['autoFindings'][meta['id']][rows[1]['id']]['engineVersion']=2
             sp.write_text(json.dumps(session));report=glyph_audit.audit(sp,root/'out')['fonts'][0]['rows']
             self.assertEqual(report[1]['autoObserved'],'B');self.assertEqual(report[1]['status'],'pending')
 

@@ -1,6 +1,21 @@
 import Foundation
 import AppKit
 
+final class UpdateFixtureProtocol:URLProtocol {
+    static var payload=Data()
+    static var status=200
+    static var fail=false
+    override class func canInit(with request:URLRequest)->Bool {true}
+    override class func canonicalRequest(for request:URLRequest)->URLRequest {request}
+    override func startLoading() {
+        if Self.fail {client?.urlProtocol(self,didFailWithError:URLError(.notConnectedToInternet));return}
+        let response=HTTPURLResponse(url:request.url!,statusCode:Self.status,httpVersion:"HTTP/1.1",headerFields:[:])!
+        client?.urlProtocol(self,didReceive:response,cacheStoragePolicy:.notAllowed)
+        client?.urlProtocol(self,didLoad:Self.payload);client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @main struct EngineTests {
     @MainActor static func main() async throws {
         _ = NSApplication.shared
@@ -129,11 +144,26 @@ import AppKit
         print("PASS: glyph-name audit review, issue flags and persisted notes")
         let agree=GlyphOCR.classify(expected:"常",first:("常",0.9),second:("常",0.8),fingerprint:"ocr")
         precondition(agree.kind=="agree")
-        precondition(GlyphOCR.classify(expected:"常",first:("悄",0.9),second:("悄",0.8),fingerprint:"ocr").kind=="mismatch")
+        precondition(GlyphOCR.classify(expected:"常",first:("悄",0.9),second:("悄",0.8),fingerprint:"ocr").kind=="uncertain")
+        precondition(GlyphOCR.classify(expected:"常",first:("悄",0.9),second:("悄",0.8),fingerprint:"ocr",third:("悄",0.85),shapeSupported:true).kind=="mismatch")
+        precondition(GlyphOCR.classify(expected:"常",first:("悄",0.9),second:("悄",0.8),fingerprint:"ocr",third:("常",0.85),shapeSupported:true).kind=="uncertain")
         precondition(GlyphOCR.classify(expected:"常",first:("",0),second:("常",0.8),fingerprint:"ocr").kind=="unreadable")
-        precondition(GlyphOCR.classify(expected:"常",first:("常",0.3),second:("常",0.8),fingerprint:"ocr").kind=="uncertain")
+        precondition(GlyphOCR.classify(expected:"常",first:("常",0.3),second:("常",0.8),fingerprint:"ocr").kind=="agree")
+        for character in ["丙","与","%","1","u"] {
+            precondition(GlyphOCR.classify(expected:character,first:(character,0.3),second:(character,0.5),fingerprint:"screenshot").kind=="agree")
+        }
+        precondition(GlyphOCR.classify(expected:"u",first:("n",0.99),second:("n",0.99),fingerprint:"orientation",third:("n",0.99),shapeSupported:false).kind=="uncertain")
+        let u=referenceGlyph(117,family:"Helvetica"),n=referenceGlyph(110,family:"Helvetica")
+        let um=GlyphShape.mask(u.0,CGGlyph(u.1))!,nm=GlyphShape.mask(n.0,CGGlyph(n.1))!
+        precondition(GlyphShape.distance(um,um)==0 && GlyphShape.distance(um,nm)>0)
+        precondition(!GlyphShape.supports(u.0,CGGlyph(u.1),expected:"u",candidate:"n"))
+        precondition(!GlyphShape.supports(n.0,CGGlyph(n.1),expected:"u",candidate:"n"))
+        let actualB=referenceGlyph(66,family:"Helvetica")
+        precondition(GlyphShape.supports(actualB.0,CGGlyph(actualB.1),expected:"Z",candidate:"B"))
         precondition(GlyphOCR.classify(expected:"常",first:("悄",0.9),second:("常",0.8),fingerprint:"ocr").kind=="uncertain")
         m.session.autoFindings=["A":[auditRow.id:AutoFinding(fingerprint:auditRow.fingerprint,kind:"mismatch",observed:"B",confidence:0.9,reason:"fixture")]]
+        precondition(m.autoFinding("A",auditRow)==nil)
+        m.session.autoFindings?["A"]?[auditRow.id]?.engineVersion=GlyphOCR.engineVersion
         precondition(m.autoFinding("A",auditRow)?.observed=="B")
         var changedRow=auditRow;changedRow.fingerprint="changed";precondition(m.autoFinding("A",changedRow)==nil)
         m.save();let screenedSession=try JSONDecoder().decode(Session.self,from:Data(contentsOf:m.saveURL));precondition(screenedSession.autoFindings?["A"]?[auditRow.id]?.kind=="mismatch")
@@ -147,6 +177,9 @@ import AppKit
             let c1=try GlyphOCR.recognize(GlyphOCR.image(chinese.0,CGGlyph(chinese.1),repeated:false)!)
             let c2=try GlyphOCR.recognize(GlyphOCR.image(chinese.0,CGGlyph(chinese.1),repeated:true)!)
             print("OCR Chinese smoke:",c1,c2)
+            let c3=try GlyphOCR.recognize(GlyphOCR.image(chinese.0,CGGlyph(chinese.1),count:5,cell:240)!)
+            let evidence=GlyphShape.supports(chinese.0,CGGlyph(chinese.1),expected:"悄",candidate:"常")
+            print("Wrong-CJK specimen (悄 → 常):",c1,c2,c3,"shape",evidence,GlyphOCR.classify(expected:"悄",first:c1,second:c2,fingerprint:"wrong-cjk",third:c3,shapeSupported:evidence).kind)
             let printed=referenceGlyph(0x5e38,family:"PingFang TC")
             let p1=try GlyphOCR.recognize(GlyphOCR.image(printed.0,CGGlyph(printed.1),repeated:false)!)
             let p2=try GlyphOCR.recognize(GlyphOCR.image(printed.0,CGGlyph(printed.1),repeated:true)!)
@@ -154,7 +187,57 @@ import AppKit
             print("OCR intentional wrong mapping (悄 → 常):",p1,p2,wrong.kind,wrong.observed)
             precondition(wrong.kind != "agree")
         }
+        if ProcessInfo.processInfo.environment["GLYPHCHECK_OCR_BENCHMARK"]=="1" {
+            var totals:[String:Int]=[:];var legacyFlags=0
+            for family in ["Kaiti TC","PingFang TC"] {
+                for character in ["丙","与","%","u","常","永"] {
+                    let ref=referenceGlyph(Int(character.unicodeScalars.first!.value),family:family)
+                    let one=try GlyphOCR.recognize(GlyphOCR.image(ref.0,CGGlyph(ref.1),repeated:false)!)
+                    let three=try GlyphOCR.recognize(GlyphOCR.image(ref.0,CGGlyph(ref.1),repeated:true)!)
+                    var five:(String,Double)?=nil;var supported=false
+                    if one.0==three.0,one.0 != character,min(one.1,three.1)>=GlyphOCR.candidateFloor {
+                        five=try GlyphOCR.recognize(GlyphOCR.image(ref.0,CGGlyph(ref.1),count:5,cell:240)!)
+                        supported=GlyphShape.supports(ref.0,CGGlyph(ref.1),expected:character,candidate:one.0)
+                    }
+                    let result=GlyphOCR.classify(expected:character,first:one,second:three,fingerprint:"benchmark",third:five,shapeSupported:supported)
+                    totals[result.kind,default:0]+=1
+                    if one.0 != character || three.0 != character || min(one.1,three.1)<0.55 {legacyFlags+=1}
+                    print("Ground-truth specimen:",family,character,one,three,result.kind)
+                    precondition(result.kind != "mismatch","Known-correct specimen flagged")
+                }
+            }
+            print("Ground-truth totals (not a general accuracy benchmark):",totals,"old flags",legacyFlags)
+        }
         print("PASS: conservative OCR classification, no automatic acceptance, and evidence-bound persistence")
+        func release(_ tag:String="v1.5.0",_ url:String="https://github.com/lancer1234/GlyphCheck/releases/tag/v1.5.0",draft:Bool=false,prerelease:Bool=false)->Data {
+            try! JSONSerialization.data(withJSONObject:["tag_name":tag,"html_url":url,"draft":draft,"prerelease":prerelease])
+        }
+        precondition(AppVersion("v1.10.0")!>AppVersion("1.9.9")!)
+        precondition(AppVersion("1.5.0")!>AppVersion("1.5.0-preview.1")!)
+        precondition(AppVersion("1.5.0-preview.10")!>AppVersion("1.5.0-preview.2")!)
+        precondition(AppVersion("bad")==nil && AppVersion("1.2")==nil && AppVersion("01.2.3")==nil)
+        let newer=try ReleaseUpdates.interpret(release(),status:200,current:"1.5.0-preview.1")
+        let equal=try ReleaseUpdates.interpret(release(),status:200,current:"1.5.0")
+        let older=try ReleaseUpdates.interpret(release(),status:200,current:"1.6.0")
+        let absent=try ReleaseUpdates.interpret(Data(),status:404,current:"1.5.0")
+        precondition(newer == .available("v1.5.0",URL(string:"https://github.com/lancer1234/GlyphCheck/releases/tag/v1.5.0")!))
+        precondition(equal == .current && older == .current && absent == .noRelease)
+        for (data,status) in [(release("v1.5.0","https://example.com/evil"),200),(release(draft:true),200),(release(prerelease:true),200),(Data("bad".utf8),200),(Data(),403),(Data(),429),(Data(),500)] {
+            do {_=try ReleaseUpdates.interpret(data,status:status,current:"1.4.0");preconditionFailure("Unsafe update accepted")}catch {}
+        }
+        print("PASS: stable-release ordering, prerelease-to-stable, no downgrades, invalid/foreign releases and HTTP errors")
+        let updateConfig=URLSessionConfiguration.ephemeral;updateConfig.protocolClasses=[UpdateFixtureProtocol.self]
+        let updateSession=URLSession(configuration:updateConfig)
+        UpdateFixtureProtocol.payload=release()
+        let fetched=try await ReleaseUpdates.fetch(current:"1.4.0",session:updateSession)
+        precondition(fetched==newer)
+        UpdateFixtureProtocol.fail=true
+        do {_=try await ReleaseUpdates.fetch(current:"1.4.0",session:updateSession);preconditionFailure("Offline request reported success")}catch {}
+        updateSession.invalidateAndCancel()
+        if ProcessInfo.processInfo.environment["GLYPHCHECK_UPDATE_SMOKE"]=="1" {
+            print("GitHub live update check:",try await ReleaseUpdates.fetch(current:"1.5.0-preview.1"))
+        }
+        print("PASS: URLSession update transport and offline-error handling")
         print("PASS: saved character lists, Unicode lists, task goals, possible variants, priority tiers, sample provenance and repair acceptance")
         print("PASS: English, Latin scopes, reviewer conflicts, idempotence, reconciliation undo, invalid tasks, CoreText proof rendering")
         print("PASS: quick confirmation, mismatch priority, undo, input validation, checkpoint, random sampling, script filters, UI conversion, issue navigation, missing issues, legacy session")
