@@ -57,6 +57,9 @@ struct Session: Codable {
     var glyphLists:[GlyphNameList]? = nil
     var glyphReviews:[String:[String:GlyphReview]]? = nil
     var autoFindings:[String:[String:AutoFinding]]? = nil
+    var title:String? = nil
+    var pendingInputs:[String:String]? = nil
+    var pendingInputCodepoint:Int? = nil
 }
 struct ExternalRepair: Codable { var sourceID: String; var codepoint: Int }
 struct RepairApproval: Codable {
@@ -200,17 +203,25 @@ func reviewable(_ cp: Int) -> Bool {
     @Published var updateStatus=""
     @Published var availableUpdateURL:URL? = nil
     var didCheckUpdatesOnLaunch=false
+    @Published var showProgress=false
+    @Published var storedProgress:[StoredProgress]=[]
+    @Published var showGuide=false
+    var progressRecovered=false
+    var progressSharePicker:NSSharingServicePicker? = nil
     var autoTask:Task<Void,Never>? = nil
     var autoRunID=UUID()
     var donorFonts: [String: CTFont] = [:]
     let base: URL
     var folder: URL { base.appendingPathComponent(session.id, isDirectory: true) }
     var saveURL: URL { folder.appendingPathComponent("進度.glyphcheck") }
-    let resources = Bundle.main.resourceURL!
+    let resources:URL
     let persistRecent: Bool
-    init(storageRoot: URL? = nil, persistRecent: Bool = true) {
+    init(storageRoot: URL? = nil, persistRecent: Bool = true,preferredLanguages:[String]=Locale.preferredLanguages,resourceRoot:URL?=nil) {
         self.persistRecent = persistRecent
-        if persistRecent { uiLanguage = UserDefaults.standard.string(forKey: "uiLanguage") ?? "traditional" }
+        resources=resourceRoot ?? Bundle.main.resourceURL!
+        let initialLanguage=InterfaceLanguage.initial(saved:persistRecent ? UserDefaults.standard.string(forKey:"uiLanguage") : nil,preferred:preferredLanguages)
+        uiLanguage=initialLanguage
+        if persistRecent {UserDefaults.standard.set(initialLanguage,forKey:"uiLanguage")}
         base = storageRoot ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("字形檢查器/Sessions", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
@@ -328,6 +339,7 @@ func reviewable(_ cp: Int) -> Bool {
                 drafts[f.id] = a; typed[f.id] = a.actual
             }
         }
+        if session.pendingInputCodepoint==cp {for (id,value) in session.pendingInputs ?? [:] where session.fonts.contains(where:{$0.id==id}) {typed[id]=value}}
     }
     func mark(_ f: FontRecord, _ kind: String) {
         if kind == "mismatch" {
@@ -458,23 +470,26 @@ func reviewable(_ cp: Int) -> Bool {
         for cp in session.referenceDoubts { result.append(ReviewIssue(font: "reference",cp: cp,kind: "reference",actual: "")) }
         return result.sorted { $0.cp == $1.cp ? $0.id < $1.id : $0.cp < $1.cp }
     }
-    func save() {
+    @discardableResult func save()->Bool {
+        guard !session.fonts.isEmpty else{return true}
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted,.sortedKeys]
             session.uiLanguage = uiLanguage
             session.proofText = proofText
-            try encoder.encode(session).write(to: saveURL, options: .atomic)
+            session.pendingInputCodepoint=session.current;session.pendingInputs=typed
+            if !session.started {
+                session.scope=scope;session.inputText=custom;session.scriptVariant=scriptVariant;session.taskGoal=taskGoal
+                session.reviewMode=reviewStrategy;session.requestedSampleSize=sampleMode ? Int(sampleCount) : nil
+            }
+            try ProgressStore.save(session,to:saveURL)
             if persistRecent { UserDefaults.standard.set(saveURL.path, forKey: "lastSession") }
-        } catch { self.error = "保存進度失敗：\(error.localizedDescription)" }
+            return true
+        } catch { self.error = "保存進度失敗：\(error.localizedDescription)";return false }
     }
     func saveCopy() {
-        persistDrafts(); save(); let p = NSSavePanel(); p.nameFieldStringValue = "字形檢查進度.glyphcheck"
-        if p.runModal() == .OK, let url = p.url {
-            do { try Data(contentsOf: saveURL).write(to: url, options: .atomic) } catch { self.error = error.localizedDescription }
-        }
+        exportProgress()
     }
     func openSession(_ url: URL? = nil) {
+        guard !busy,!autoRunning else{error="請先停止目前的工作，再開啟其他進度。";return}
         let requestedRepair = taskGoal == "repair"
         var target = url
         if target == nil {
@@ -482,9 +497,10 @@ func reviewable(_ cp: Int) -> Bool {
             if p.runModal() == .OK { target = p.url }
         }
         guard let target else { return }
+        persistDrafts();guard save() else{return};busy=true
+        Task {
         do {
-            let s = try JSONDecoder().decode(Session.self, from: Data(contentsOf: target))
-            guard s.version == 1 && (1...2).contains(s.fonts.count) else { throw CocoaError(.fileReadCorruptFile) }
+            let s = try await adoptProgress(target)
             var loaded: [String: CTFont] = [:]
             for f in s.fonts {
                 guard FileManager.default.fileExists(atPath: f.source), let provider = CGDataProvider(url: URL(fileURLWithPath: f.preview) as CFURL), let cg = CGFont(provider) else {
@@ -497,24 +513,27 @@ func reviewable(_ cp: Int) -> Bool {
             glyphAudit=nil;selectedAuditRow=""
             loadRepairSources()
             scriptVariant = s.scriptVariant ?? "all"; sampleMode = s.reviewMode == "sample"
-            sampleCount = String(s.requestedSampleSize ?? 200); uiLanguage = s.uiLanguage ?? uiLanguage
+            sampleCount = String(s.requestedSampleSize ?? 200)
             taskGoal = s.taskGoal ?? "font"; reviewStrategy = s.reviewMode == "sample" ? "sample" : s.reviewMode == "priority" ? "priority" : "full"
             custom = s.inputText ?? ""
             proofText = s.proofText ?? proofText; previewResult = nil; repairedFonts = [:]
             reference = scriptVariant == "simplified" ? "PingFang SC" : "PingFang TC"
-            loadDrafts(); refresh(); status = "已恢復保存的進度。"
+            loadDrafts(); refresh(); status = progressRecovered ? "已從上一份備份恢復進度。" : "已恢復保存的進度。";save();busy=false
             if requestedRepair { openWorkbench("repair"); preparePreview() }
-        } catch { self.error = error.localizedDescription }
+        } catch {if (error as NSError).code != CocoaError.userCancelled.rawValue {self.error=error.localizedDescription};busy=false}
+        }
     }
     func resume() {
         if let p = UserDefaults.standard.string(forKey: "lastSession") { openSession(URL(fileURLWithPath: p)) }
     }
     func newSession() {
-        autoTask?.cancel();autoRunID=UUID();autoRunning=false;autoTask=nil
-        glyphAudit=nil;selectedAuditRow=""
+        guard !busy,!autoRunning else{error="請先停止目前的工作，再建立新檢查。";return}
         let a = NSAlert(); a.messageText = t("建立新的檢查？"); a.informativeText = t("目前進度會保留，不會刪除原字檔。"); a.addButton(withTitle: t("建立")); a.addButton(withTitle: t("取消"))
         guard a.runModal() == .alertFirstButtonReturn else { return }
-        persistDrafts(); save(); session = Session(); loadedFonts = [:]; drafts = [:]; typed = [:]; undoStack = []; completed = 0; showIssues = false; showWorkbench = false; previewResult = nil; repairedFonts = [:]; status = "匯入新的字檔。"
+        glyphAudit=nil;selectedAuditRow=""
+        persistDrafts();guard save() else{return}; session = Session(); loadedFonts = [:]; drafts = [:]; typed = [:]; undoStack = []; completed = 0; showIssues = false; showWorkbench = false; previewResult = nil; repairedFonts = [:]; status = "匯入新的字檔。"
+        scope="字檔所有字元";custom="";taskGoal="font";reviewStrategy="priority";sampleMode=false;sampleCount="200";scriptVariant="all";selectedCharacterSet=""
+        donorFonts=[:];donorID="";donorTargets="";autoProgress=0;autoTotal=0;proofText="常常想起那些字。\nAVATAR To fi fl — Il1 O0 rn m"
     }
     func export(attempt: Bool) {
         if attempt && (!showWorkbench || previewResult == nil) { openWorkbench("repair"); preparePreview(); return }
@@ -573,7 +592,9 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
                 Text(m.t("字形檢查器")).font(.headline)
                 Spacer()
                 if m.busy { ProgressView().controlSize(.small) }
-                Menu { Button(m.t("開啟檢查進度…")) { m.openSession() }; Button(m.t("保存進度副本…")) { m.saveCopy() }; Button(m.t("顯示工作階段資料夾")) { NSWorkspace.shared.open(m.folder) }; Divider(); Button(m.t("使用說明")) { m.help() }; Button(m.t("新的檢查…")) { m.newSession() } } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).frame(width: 26)
+                Button(m.t("我的進度")){m.showProgressLibrary()}.disabled(m.busy || m.autoRunning)
+                Button {m.showGuide=true} label:{Image(systemName:"questionmark.circle")}.help(m.t("使用指南"))
+                Menu(m.t("進度選項")) { Button(m.t("匯入進度…")) { m.openSession() }; Button(m.t("匯出進度…")) { m.saveCopy() }.disabled(m.session.fonts.isEmpty || m.autoRunning);Button(m.t("分享進度…")){m.exportProgress(share:true)}.disabled(m.session.fonts.isEmpty || m.autoRunning);Divider();Button(m.t("新的檢查…")) { m.newSession() } }.menuStyle(.borderlessButton).fixedSize()
             }.padding(22)
             Divider()
             if m.session.started { review } else { welcome }
@@ -595,20 +616,24 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
         }
         .sheet(isPresented: $m.showIssues) { issuesPanel }
         .sheet(isPresented: $m.showWorkbench) { WorkbenchView().environmentObject(m) }
-        .onOpenURL { url in if url.pathExtension == "glyphcheck" { m.openSession(url) } else { Task { await m.importURL(url) } } }
+        .sheet(isPresented:$m.showProgress) {ProgressLibraryView().environmentObject(m)}
+        .sheet(isPresented:$m.showGuide) {QuickGuideView().environmentObject(m)}
+        .onReceive(NotificationCenter.default.publisher(for:NSApplication.willResignActiveNotification)) {_ in if !m.busy {m.persistDrafts();m.save()} }
+        .onOpenURL { url in if url.pathExtension.lowercased() == "glyphcheck" { m.openSession(url) } else { Task { await m.importURL(url) } } }
         .onDrop(of: [.fileURL],isTargeted: nil) { providers in
             guard !m.session.started else { return false }
-            for provider in providers.prefix(2 - m.session.fonts.count) {
-                _ = provider.loadObject(ofClass: URL.self) { url,_ in if let url { Task { @MainActor in await m.importURL(url) } } }
+            for provider in providers.prefix(max(1,2 - m.session.fonts.count)) {
+                _ = provider.loadObject(ofClass: URL.self) { url,_ in if let url { Task { @MainActor in if url.pathExtension.lowercased()=="glyphcheck" {m.openSession(url)} else {await m.importURL(url)} } } }
             }; return true
         }
     }
     var welcome: some View {
         ScrollView {
             VStack(spacing: 25) {
-                VStack(spacing: 12) { Image(systemName: "character.magnify").font(.system(size: 48,weight: .light)).foregroundStyle(.tint); Text(m.t("讓字形對回正確的字")).font(.largeTitle.bold()) }.padding(.top,32)
-                TaskChooser().environmentObject(m)
-                if m.taskGoal == "repair" { Button(m.t("開啟檢查進度…")) { m.openSession() } }
+                if m.session.fonts.isEmpty {
+                    HomeStartView().environmentObject(m)
+                } else {
+                VStack(alignment:.leading,spacing:8) {Text(m.t("準備開始檢查")).font(.title.bold());Text(m.t("選好字檔後即可開始；其他選項可稍後調整。")).foregroundStyle(.secondary)}.frame(maxWidth:.infinity,alignment:.leading).padding(.top,24)
                 HStack(spacing: 14) {
                     ForEach(m.session.fonts) { f in
                         VStack(alignment: .leading,spacing: 9) {
@@ -621,7 +646,8 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
                         Button { m.importPanel() } label: { VStack(spacing: 10) { Image(systemName: "plus.circle").font(.title); Text(m.t(m.session.fonts.isEmpty ? "匯入字檔" : "加入第二個字檔")); Text(m.t("TTF · OTF · TTC · 可拖曳")).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity,minHeight: 108) }.buttonStyle(.bordered)
                     }
                 }
-                VStack(alignment: .leading,spacing: 12) {
+                if m.taskGoal == "text" {CharacterListControls().environmentObject(m)}
+                DisclosureGroup(m.t("進階選項：範圍、繁簡與抽樣")) {VStack(alignment: .leading,spacing: 12) {
                     Picker(m.t("檢查範圍"),selection: $m.scope) { ForEach(["字檔所有字元","漢字基本區","漢字基本＋擴展 A","英文／基本拉丁","拉丁字母與重音","數字與標點","自訂文字"],id: \.self) { Text(m.t($0)) } }.frame(maxWidth: 380)
                     Picker(m.t("字元篩選"),selection: $m.scriptVariant) {
                         Text(m.t("全部（繁簡皆含）")).tag("all"); Text(m.t("繁體")).tag("traditional"); Text(m.t("簡體")).tag("simplified")
@@ -630,10 +656,12 @@ func referenceGlyph(_ cp: Int, family: String) -> (CTFont,Int,String) {
                     if m.sampleMode {
                         HStack { Text(m.t("抽樣字數")); TextField(m.t("數量"),text: $m.sampleCount).textFieldStyle(.roundedBorder).frame(width: 100) }
                     }
-                    if m.scope == "自訂文字" { CharacterListControls().environmentObject(m) }
+                    if m.scope == "自訂文字" && m.taskGoal != "text" { CharacterListControls().environmentObject(m) }
                     else { Button(m.t("使用自己的字表…")) { m.scope="自訂文字"; m.importCharacterList() } }
-                }.padding(18).background(.background,in: RoundedRectangle(cornerRadius: 14))
-                HStack(spacing:12) { Button(m.t("繼續上次檢查")) { m.resume() };Menu(m.t("更多工具")) {Button(m.t("預掃描")){m.openWorkbench("scan")}.disabled(m.session.fonts.isEmpty);Button(m.t("Glyphs 字集驗收…")){m.importGlyphLists()};Button(m.t("匯入核對任務…")){m.importReviewTask()}.disabled(m.session.fonts.isEmpty)};Spacer();Button(m.t("開始檢查")){m.start()}.buttonStyle(.borderedProminent).controlSize(.large).disabled(m.session.fonts.isEmpty) }
+                }}.padding(18).background(.background,in: RoundedRectangle(cornerRadius: 14))
+                HStack(spacing:12) {Button(m.t("開啟工具箱")){m.openWorkbench("scan")};Spacer();Button(m.t("開始逐字核對")){m.start()}.buttonStyle(.borderedProminent).controlSize(.large).disabled(m.session.fonts.isEmpty)}
+                Text(m.t("進度會自動保存。檢查時按 Enter 可確認並前往下一字。")).font(.caption).foregroundStyle(.secondary)
+                }
             }.padding(.horizontal,40).padding(.bottom,28).frame(maxWidth: 850)
             .frame(maxWidth: .infinity)
         }
@@ -767,12 +795,21 @@ struct EnterHandler: NSViewRepresentable {
 }
 
 #if !TESTING
+@MainActor final class GlyphCheckDelegate:NSObject,NSApplicationDelegate {
+    weak var checker:Checker?
+    func applicationShouldTerminate(_ sender:NSApplication)->NSApplication.TerminateReply {
+        guard let checker else{return .terminateNow}
+        checker.autoTask?.cancel();checker.persistDrafts()
+        return checker.save() ? .terminateNow : .terminateCancel
+    }
+}
 @MainActor @main struct GlyphCheckApp: App {
+    @NSApplicationDelegateAdaptor(GlyphCheckDelegate.self) var delegate
     @StateObject var checker = Checker(persistRecent: !ProcessInfo.processInfo.arguments.contains("--qa"))
     var body: some Scene {
-        WindowGroup("字形檢查器") { ContentView().environmentObject(checker).task {checker.checkUpdatesOnLaunch()} }
+        WindowGroup("字形檢查器") { ContentView().environmentObject(checker).task {delegate.checker=checker;checker.checkUpdatesOnLaunch()} }
             .defaultSize(width: 1080,height: 760)
-            .commands { CommandGroup(replacing: .newItem) { Button(checker.t("新的檢查")) { checker.newSession() }.keyboardShortcut("n"); Button(checker.t("匯入字檔…")) { checker.importPanel() }.keyboardShortcut("o"); Button(checker.t("保存進度")) { checker.persistDrafts(); checker.save() }.keyboardShortcut("s") } }
+            .commands { CommandGroup(replacing: .newItem) { Button(checker.t("新的檢查")) { checker.newSession() }.keyboardShortcut("n"); Button(checker.t("匯入字檔…")) { checker.importPanel() }.keyboardShortcut("o");Divider();Button(checker.t("我的檢查進度")){checker.showProgressLibrary()}.disabled(checker.busy || checker.autoRunning);Button(checker.t("匯入進度…")){checker.openSession()}.disabled(checker.busy || checker.autoRunning);Button(checker.t("匯出進度…")){checker.exportProgress()}.disabled(checker.session.fonts.isEmpty || checker.busy || checker.autoRunning);Button(checker.t("分享進度…")){checker.exportProgress(share:true)}.disabled(checker.session.fonts.isEmpty || checker.busy || checker.autoRunning);Divider();Button(checker.t("保存進度")) { checker.persistDrafts(); checker.save() }.keyboardShortcut("s") } }
             .commands { CommandGroup(replacing: .appInfo) { Button(checker.t("關於 GlyphCheck")) { checker.about() };Button(checker.t("檢查更新…")){checker.checkForUpdates()}.disabled(checker.checkingUpdates) } }
         Settings { SettingsView().environmentObject(checker) }
     }

@@ -4,12 +4,13 @@
 <key>CFBundleName</key><string>字形檢查器</string>
 <key>CFBundleDisplayName</key><string>字形檢查器</string>
 <key>CFBundleIdentifier</key><string>tw.makotolab.GlyphCheck</string>
-<key>CFBundleVersion</key><string>10</string>
-<key>CFBundleShortVersionString</key><string>1.5.0</string>
+<key>CFBundleVersion</key><string>12</string>
+<key>CFBundleShortVersionString</key><string>1.6.0</string>
 <key>CFBundleExecutable</key><string>GlyphCheck</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>字形檢查進度</string><key>CFBundleTypeExtensions</key><array><string>glyphcheck</string></array><key>CFBundleTypeRole</key><string>Editor</string></dict></array>
+<key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>GlyphCheck Progress</string><key>LSItemContentTypes</key><array><string>tw.makotolab.glyphcheck.progress</string></array><key>CFBundleTypeExtensions</key><array><string>glyphcheck</string></array><key>LSTypeIsPackage</key><true/><key>CFBundleTypeRole</key><string>Editor</string></dict></array>
+<key>UTExportedTypeDeclarations</key><array><dict><key>UTTypeIdentifier</key><string>tw.makotolab.glyphcheck.progress</string><key>UTTypeDescription</key><string>GlyphCheck Progress</string><key>UTTypeConformsTo</key><array><string>com.apple.package</string></array><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>glyphcheck</string></array></dict></dict></array>
 </dict></plist>

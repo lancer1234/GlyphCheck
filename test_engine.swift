@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 
 final class UpdateFixtureProtocol:URLProtocol {
     static var payload=Data()
@@ -238,6 +239,69 @@ final class UpdateFixtureProtocol:URLProtocol {
             print("GitHub live update check:",try await ReleaseUpdates.fetch(current:"1.5.0-preview.1"))
         }
         print("PASS: URLSession update transport and offline-error handling")
+        precondition(InterfaceLanguage.initial(saved:nil,preferred:["zh-TW"])=="traditional")
+        precondition(InterfaceLanguage.initial(saved:nil,preferred:["zh-Hant-CN"])=="traditional")
+        precondition(InterfaceLanguage.initial(saved:nil,preferred:["zh-Hans-HK"])=="simplified")
+        precondition(InterfaceLanguage.initial(saved:nil,preferred:["zh-CN"])=="simplified")
+        precondition(InterfaceLanguage.initial(saved:nil,preferred:["fr-FR","en-GB"])=="english")
+        precondition(InterfaceLanguage.initial(saved:"simplified",preferred:["en-US"])=="simplified")
+        precondition(InterfaceLanguage.initial(saved:"bad",preferred:["ja-JP"])=="english")
+        let firstLaunch=Checker(storageRoot:root.appendingPathComponent("first-launch"),persistRecent:false,preferredLanguages:["en-US"])
+        precondition(firstLaunch.uiLanguage=="english")
+        firstLaunch.save();precondition(!FileManager.default.fileExists(atPath:firstLaunch.saveURL.path))
+        var progress=Session();progress.fonts=[a];progress.title="Repair Review";progress.answers=["A":["65":Answer(kind:"mismatch",actual:"B")]];progress.uiLanguage="traditional"
+        let original=root.appendingPathComponent("source.ttf");let originalData=Data("test font bytes".utf8)
+        try originalData.write(to:original)
+        progress.fonts[0].source=original.path;progress.fonts[0].preview=root.appendingPathComponent("source.preview.otf").path
+        progress.fonts[0].sha256=SHA256.hash(data:originalData).map{String(format:"%02x",$0)}.joined()
+        let internalFile=root.appendingPathComponent(progress.id).appendingPathComponent("進度.glyphcheck")
+        try ProgressStore.save(progress,to:internalFile)
+        progress.title="Renamed";try ProgressStore.save(progress,to:internalFile)
+        try Data("damaged JSON".utf8).write(to:internalFile)
+        let recovered=try ProgressStore.read(internalFile)
+        precondition(recovered.recovered && recovered.session.title=="Repair Review")
+        try ProgressStore.save(progress,to:internalFile)
+        let packed=root.appendingPathComponent("portable.glyphcheck")
+        try ProgressStore.export(progress,to:packed,includeFonts:true)
+        let moved=root.appendingPathComponent("moved.glyphcheck");try FileManager.default.moveItem(at:packed,to:moved)
+        let portable=try ProgressStore.read(moved)
+        precondition(portable.packaged && portable.session.fonts[0].preview.isEmpty && portable.session.uiLanguage==nil)
+        let embedded=try ProgressStore.source(portable.session.fonts[0],in:portable)!
+        try ProgressStore.verify(embedded,for:portable.session.fonts[0])
+        let light=root.appendingPathComponent("without-fonts.glyphcheck");try ProgressStore.export(progress,to:light,includeFonts:false)
+        let lightDoc=try ProgressStore.read(light)
+        let excluded=try ProgressStore.source(lightDoc.session.fonts[0],in:lightDoc)
+        precondition(excluded==nil)
+        precondition(lightDoc.session.answers==progress.answers)
+        var unsafe=lightDoc.session.fonts[0];unsafe.source="../source.ttf"
+        do {_=try ProgressStore.source(unsafe,in:lightDoc);preconditionFailure("Traversal accepted")}catch {}
+        unsafe.source="Fonts/link.ttf";try FileManager.default.createSymbolicLink(at:light.appendingPathComponent(unsafe.source),withDestinationURL:original)
+        do {_=try ProgressStore.source(unsafe,in:lightDoc);preconditionFailure("External symlink accepted")}catch {}
+        var badHash=progress.fonts[0];badHash.sha256=String(repeating:"0",count:64)
+        do {try ProgressStore.verify(original,for:badHash);preconditionFailure("Wrong original accepted")}catch {}
+        precondition(ProgressStore.library(root).contains(where:{$0.id==progress.id && $0.title=="Renamed"}))
+        print("PASS: system-language selection, explicit preference, no empty projects, backup recovery, movable bundles, font-free sharing, hash and path protection")
+        reset();m.typed["A"]="B";m.save();let pending=try ProgressStore.read(m.saveURL)
+        precondition(pending.session.pendingInputs?["A"]=="B" && pending.session.answers["A"]?["65"]==nil)
+        m.typed=[:];m.loadDrafts();precondition(m.typed["A"]=="B")
+        m.session.started=false;m.scope="自訂文字";m.custom="準備中的文章";m.taskGoal="text";m.save()
+        let preparing=try ProgressStore.read(m.saveURL);precondition(preparing.session.inputText=="準備中的文章" && preparing.session.scope=="自訂文字")
+        if let resources=ProcessInfo.processInfo.environment["GLYPHCHECK_TEST_RESOURCES"],let fontPath=ProcessInfo.processInfo.environment["GLYPHCHECK_TEST_FONT"] {
+            let importer=Checker(storageRoot:root.appendingPathComponent("imported"),persistRecent:false,preferredLanguages:["en-US"],resourceRoot:URL(fileURLWithPath:resources))
+            let parsed=try JSONDecoder().decode(ImportResult.self,from:try await importer.run(["inspect",fontPath,root.appendingPathComponent("real-font").path]))
+            var actual=Session();actual.fonts=[parsed.fonts[0]];actual.title="Portable Review";actual.current=65;actual.domain=[65,66];actual.answers=[actual.fonts[0].id:["65":Answer(kind:"mismatch",actual:"B")]];actual.uiLanguage="simplified"
+            let package=root.appendingPathComponent("real.glyphcheck");try ProgressStore.export(actual,to:package,includeFonts:true)
+            let adopted=try await importer.adoptProgress(package)
+            precondition(adopted.id != actual.id && adopted.fonts[0].source.hasPrefix(importer.base.path) && adopted.answers==actual.answers && adopted.fonts[0].id==actual.fonts[0].id)
+            precondition(FileManager.default.fileExists(atPath:adopted.fonts[0].preview))
+            let without=root.appendingPathComponent("real-light.glyphcheck");try ProgressStore.export(actual,to:without,includeFonts:false)
+            let linked=try await importer.adoptProgress(without)
+            precondition(linked.id != adopted.id && linked.answers==actual.answers && importer.uiLanguage=="english")
+            importer.openSession(importer.base.appendingPathComponent(linked.id).appendingPathComponent("進度.glyphcheck"))
+            while importer.busy {try await Task.sleep(nanoseconds:10_000_000)}
+            precondition(importer.error==nil && importer.session.id==linked.id && importer.uiLanguage=="english")
+            print("PASS: real-font bundle import, rebuilt previews, managed copies, hash-matched font-free import and app-language isolation")
+        }
         print("PASS: saved character lists, Unicode lists, task goals, possible variants, priority tiers, sample provenance and repair acceptance")
         print("PASS: English, Latin scopes, reviewer conflicts, idempotence, reconciliation undo, invalid tasks, CoreText proof rendering")
         print("PASS: quick confirmation, mismatch priority, undo, input validation, checkpoint, random sampling, script filters, UI conversion, issue navigation, missing issues, legacy session")

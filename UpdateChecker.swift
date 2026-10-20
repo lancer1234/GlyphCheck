@@ -79,7 +79,7 @@ enum ReleaseUpdates {
 }
 
 extension Checker {
-    var currentAppVersion:String {Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.5.0"}
+    var currentAppVersion:String {Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.6.0"}
     func checkForUpdates(manual:Bool=true) {
         guard !checkingUpdates else{return}
         checkingUpdates=true;updateStatus=t("正在檢查更新…");availableUpdateURL=nil

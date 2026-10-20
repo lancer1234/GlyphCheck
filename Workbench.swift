@@ -289,6 +289,7 @@ final class ProofCanvas: NSView {
           Divider()
           VStack(alignment:.leading,spacing:20) {
             HStack { Text(m.t(sections.first(where:{$0.0==m.workTab})?.1 ?? "檢查工作台")).font(.title2.bold());Spacer();if m.busy {ProgressView().controlSize(.small)};Button(m.t("完成")){m.showWorkbench=false}.disabled(m.busy) }
+            Text(m.t(ToolGuidance.descriptions[m.workTab] ?? "")).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
             Group {
                 switch m.workTab {
                 case "scan": scan
@@ -418,6 +419,10 @@ final class ProofCanvas: NSView {
                 if !m.updateStatus.isEmpty {Text(m.updateStatus).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)}
                 Text(m.t("只查詢 GitHub 版本資訊；不傳送字檔、不自動下載或安裝。")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
             }
-        }.formStyle(.grouped).padding(12).frame(width:480,height:390)
+            Section(m.t("資料與進度")) {
+                Text(m.t("進度集中保存在 App 專用資料夾，更新程式不會刪除。")).font(.caption).foregroundStyle(.secondary)
+                Button(m.t("顯示 App 資料夾")){NSWorkspace.shared.open(m.base)}
+            }
+        }.formStyle(.grouped).padding(12).frame(width:480,height:490)
     }
 }
